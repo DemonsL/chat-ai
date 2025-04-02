@@ -1,0 +1,377 @@
+# Technologies used in this project
+technologies:
+  - python >= 3.8
+  - fastapi
+  - uvicorn  
+  - pydantic
+  - pydantic-settings
+  - langchain
+  - langchain-openai
+  - langchain-anthropic
+  # Add other langchain integrations as needed (e.g., langchain-community for Ollama)
+  - sqlalchemy # Specify the chosen SQL ORM
+  - alembic
+  - postgresql
+  - asyncpg
+  - mongodb (optional)
+  - motor (async mongodb driver, if mongodb is used)
+  - redis
+  - pinecone-client | chromadb # Specify the chosen Vector DB client
+  # Add specific embedding model libraries if managed within the repo (e.g., sentence-transformers)
+  - python-jose | fastapi-users # For JWT Authentication
+  - celery | redis-queue (rq) # If using a dedicated task queue beyond BackgroundTasks
+  - pypdf
+  - python-docx
+  - pytesseract # For OCR
+  - pytest # For testing
+  - docker
+  - docker-compose
+  - sse (server-sent events)
+  # Mention monitoring/logging if config/setup is in repo
+  # - opentelemetry
+  # - loguru
+
+# Rules defining important files and directories based on the final structure
+rules:
+  # --- Core Application & Config ---
+  - pattern: "/app/main.py"
+    label: core-entrypoint
+    priority: high
+  - pattern: "/app/core/config.py"
+    label: config
+    priority: high
+  - pattern: "/app/core/security.py"
+    label: security
+    priority: high
+  - pattern: "/app/core/exceptions.py"
+    label: core-exceptions
+    priority: medium
+
+  # --- API Layer ---
+  - pattern: "/app/api/v1/endpoints/**/*.py"
+    label: api-endpoints
+    priority: high
+  - pattern: "/app/api/deps.py"
+    label: api-dependencies
+    priority: medium
+
+  # --- Database Layer ---
+  - pattern: "/app/db/session.py"
+    label: db-session
+    priority: high
+  - pattern: "/app/db/models/**/*.py"
+    label: db-models-sql
+    priority: high
+  - pattern: "/app/db/repositories/**/*.py" # Using Repository Pattern
+    label: db-repositories
+    priority: high
+  - pattern: "/app/db/*_client.py" # Clients for Redis, VectorDB, MongoDB
+    label: db-clients
+    priority: medium
+  - pattern: "/alembic/**/*.py"
+    label: db-migrations
+    priority: medium
+
+  # --- Schemas ---
+  - pattern: "/app/schemas/**/*.py"
+    label: schema-pydantic
+    priority: high
+
+  # --- LLM / AI Services Layer (app/llm/) ---
+  - pattern: "/app/llm/core/manager.py" # Manages LLM client instances
+    label: llm-manager
+    priority: high
+  - pattern: "/app/llm/core/callbacks.py"
+    label: llm-callbacks
+    priority: medium
+  - pattern: "/app/llm/core/memory/**/*.py"
+    label: llm-memory
+    priority: medium
+  - pattern: "/app/llm/chat/service.py"
+    label: llm-chat-service
+    priority: high
+  - pattern: "/app/llm/chat/prompts.py"
+    label: llm-chat-prompts
+    priority: medium
+  - pattern: "/app/llm/rag/service.py"
+    label: llm-rag-service
+    priority: high
+  - pattern: "/app/llm/rag/retriever.py"
+    label: llm-rag-retriever
+    priority: high
+  - pattern: "/app/llm/rag/context_builder.py"
+    label: llm-rag-context
+    priority: medium
+  - pattern: "/app/llm/rag/prompts.py"
+    label: llm-rag-prompts
+    priority: medium
+  - pattern: "/app/llm/agent/service.py"
+    label: llm-agent-service
+    priority: high
+  - pattern: "/app/llm/agent/executor.py"
+    label: llm-agent-executor
+    priority: high
+  - pattern: "/app/llm/agent/tools/**/*.py"
+    label: llm-agent-tools
+    priority: high
+  - pattern: "/app/llm/agent/prompts.py"
+    label: llm-agent-prompts
+    priority: medium
+  - pattern: "/app/llm/third_party_x/**/*.py" # For future integrations
+    label: llm-third-party
+    priority: medium
+
+  # --- Service Layer (Orchestration & Core Business Logic) ---
+  - pattern: "/app/services/message_orchestrator.py" # Critical dispatcher
+    label: service-orchestrator
+    priority: high
+  - pattern: "/app/services/auth_service.py"
+    label: service-auth
+    priority: high
+  - pattern: "/app/services/user_service.py"
+    label: service-user
+    priority: high
+  - pattern: "/app/services/conversation_service.py"
+    label: service-conversation
+    priority: high
+  - pattern: "/app/services/file_management_service.py"
+    label: service-file
+    priority: high
+
+  # --- Background Tasks ---
+  - pattern: "/app/tasks/**/*.py"
+    label: background-tasks
+    priority: high
+
+  # --- Utilities ---
+  - pattern: "/app/utils/**/*.py"
+    label: utils
+    priority: medium
+
+  # --- Testing ---
+  - pattern: "/tests/**/*.py"
+    label: tests
+    priority: medium
+  - pattern: "/tests/llm/**/*.py" # Specific tests for AI services
+    label: tests-llm
+    priority: medium
+
+  # --- Configuration & Deployment ---
+  - pattern: "/.env*" # Environment variables (handle with care)
+    label: config-env
+    priority: medium
+  - pattern: "/pyproject.toml"
+    label: config-dependencies
+    priority: high
+  - pattern: "/requirements*.txt" # Alternative dependency file
+    label: config-dependencies
+    priority: high
+  - pattern: "/Dockerfile"
+    label: docker-build
+    priority: high
+  - pattern: "/docker-compose.yml"
+    label: docker-compose
+    priority: medium
+  - pattern: "/scripts/**/*.sh" # Deployment or utility scripts
+    label: scripts
+    priority: low
+
+  # --- Documentation ---
+  - pattern: "/README.md"
+    label: docs-readme
+    priority: medium
+  - pattern: "/docs/**/*.md" # Project documentation like prd.md
+    label: docs-project
+    priority: low
+
+# Import style preference
+imports:
+  style: absolute # Or 'relative' if preferred
+
+# Files and directories to generally ignore
+ignorePaths:
+  - .git/
+  - .venv/
+  - venv/
+  - __pycache__/
+  - .pytest_cache/
+  - .mypy_cache/
+  - build/
+  - dist/
+  - *.egg-info/
+  - node_modules/ # If frontend is colocated
+  - "*.log"
+  - media/ # If temporary local uploads exist
+  - data/ # Locally stored DBs, etc.
+  - alembic/versions/ # Generated migration files less critical for general coding
+
+# Default prompt context for the AI assistant
+prompt:
+  # Provide a concise summary of the project for the AI
+  system: |
+    You are assisting with the development of a Python FastAPI backend for a multi-LLM intelligent chat application.
+
+    Architecture Overview:
+    - Layered: API -> Services (Orchestration) -> AI Services (LLM Features) -> Repositories (DB Access) -> DB Models/Clients.
+    - AI Logic Location: All core AI/LLM features (chat, RAG, agent) and foundational components (LLM manager, memory, callbacks) are located under `app/llm/`.
+    - Orchestration: `app/services/message_orchestrator.py` routes incoming message requests to the appropriate service within `app/llm/` based on conversation mode.
+    - Data Access: Uses the Repository pattern located in `app/db/repositories/`.
+    - Async: Extensive use of async/await throughout the application.
+
+    Key Features:
+    - User authentication (JWT) and management.
+    - Conversation management with different modes (chat, RAG, agent) and per-conversation model selection.
+    - Support for multiple LLMs (GPT, Claude, DeepSeek) via LangChain, managed by `app/llm/core/manager.py`.
+    - File uploads (PDF, DOCX, TXT, Images w/ OCR) stored in object storage, managed by `app/services/file_management_service.py`.
+    - Asynchronous file processing (`app/tasks/file_processor.py`) and indexing (`app/tasks/vector_indexer.py`) into a Vector DB (Pinecone or Chroma) for RAG.
+    - Retrieval-Augmented Generation (RAG) implemented in `app/llm/rag/`.
+    - Agent-based DeepResearch using LangChain Agents and Tools (Web Search, RAG Search) implemented in `app/llm/agent/`.
+    - Streaming responses (SSE) for chat messages handled via API endpoints.
+
+    Core Technologies:
+    - Backend: FastAPI (async)
+    - LLM Orchestration: LangChain
+    - Data Validation: Pydantic
+    - ORM/DB: SQLModel or SQLAlchemy, PostgreSQL or MySQL, Alembic (migrations)
+    - Repositories: Custom implementation in `app/db/repositories/`
+    - Async Drivers: asyncpg/aiomysql, motor, aioredis
+    - Cache: Redis
+    - Vector DB: Pinecone or Chroma
+    - Deployment: Docker, Docker Compose
+    - API Spec: OpenAPI (Swagger)
+
+    Focus on: Modularity within `app/llm/`, clear separation of concerns between layers, asynchronous operations, security, performance, testability.
+
+architecture:
+```
+.
+├── .env                    # Environment variables (local development, gitignored)
+├── .env.example            # Example environment variables file
+├── .gitignore              # Git ignore rules
+├── alembic/                # Alembic migration scripts (if using SQLAlchemy/SQLModel)
+│   ├── versions/           # Migration files
+│   ├── env.py              # Alembic environment config
+│   └── script.py.mako      # Migration script template
+├── app/                    # Main application source code directory
+│   ├── __init__.py
+│   ├── api/                # API Layer: HTTP endpoints, request/response handling
+│   │   ├── __init__.py
+│   │   ├── deps.py         # API specific dependencies (e.g., get_current_user)
+│   │   └── v1/             # API Version 1
+│   │       ├── __init__.py
+│   │       └── endpoints/  # Resource-specific routers
+│   │           ├── __init__.py
+│   │           ├── auth.py         # Authentication endpoints (login, register)
+│   │           ├── users.py        # User related endpoints (/users/me)
+│   │           ├── conversations.py # Conversation endpoints (create, list, update settings)
+│   │           ├── messages.py     # Message endpoints (POST message -> triggers orchestrator, GET history, SSE stream)
+│   │           ├── files.py        # File upload/management endpoints
+│   │           └── models.py       # LLM model listing endpoints (info about available models)
+│   ├── core/               # Core application logic: config, security, base classes
+│   │   ├── __init__.py
+│   │   ├── config.py       # Application settings (Pydantic Settings)
+│   │   ├── security.py     # Password hashing, JWT handling
+│   │   └── exceptions.py   # Custom exception classes
+│   ├── db/                 # Database setup, models, and data access
+│   │   ├── __init__.py
+│   │   ├── session.py      # SQL DB session setup (SQLAlchemy/SQLModel)
+│   │   ├── models/         # Database models (SQLModel/SQLAlchemy)
+│   │   │   ├── __init__.py
+│   │   │   ├── base.py     # Base model class
+│   │   │   ├── user.py
+│   │   │   ├── conversation.py
+│   │   │   ├── message.py
+│   │   │   ├── user_file.py
+│   │   │   └── model_config.py # Stores info about configured LLMs
+│   │   ├── repositories/   # Data Access Logic (Repository Pattern)
+│   │   │   ├── __init__.py
+│   │   │   ├── base_repository.py # Optional base class
+│   │   │   ├── user_repository.py
+│   │   │   ├── conversation_repository.py
+│   │   │   ├── message_repository.py
+│   │   │   ├── user_file_repository.py
+│   │   │   └── model_config_repository.py
+│   │   ├── nosql_client.py # MongoDB client setup (Motor) - Optional
+│   │   ├── redis_client.py # Redis client setup (aioredis)
+│   │   └── vector_client.py# Vector DB client setup (Pinecone/Chroma) & basic access functions
+│   ├── schemas/            # Pydantic schemas for data validation and serialization
+│   │   ├── __init__.py
+│   │   ├── base.py         # Base schema
+│   │   ├── token.py        # JWT Token schema
+│   │   ├── user.py
+│   │   ├── conversation.py
+│   │   ├── message.py      # Includes schemas for input and SSE streaming output
+│   │   ├── file.py         # Schemas for file info and status
+│   │   └── model.py        # Schema for LLM model info (listing available models)
+│   ├── llm/        # <<< All AI/LLM related logic >>>
+│   │   ├── __init__.py
+│   │   ├── core/    # Core LLM setup
+│   │   │   ├── __init__.py
+│   │   │   ├── manager.py      # Instantiates LLM clients (ChatOpenAI, ChatAnthropic etc.)
+│   │   │   ├── callbacks.py    # Monitoring/logging hooks (e.g., token counting)
+│   │   │   └── memory/         # Conversation memory management classes/logic
+│   │   │       ├── __init__.py
+│   │   │       └── window_buffer.py # Example memory implementation
+│   │   ├── chat/           # Basic Chat feature logic
+│   │   │   ├── __init__.py
+│   │   │   ├── service.py  # Logic for handling standard chat messages using core.manager
+│   │   │   └── prompts.py  # Prompts specific to basic chat (if any)
+│   │   ├── rag/            # Retrieval-Augmented Generation feature logic
+│   │   │   ├── __init__.py
+│   │   │   ├── retriever.py # Handles vector search via db.vector_client
+│   │   │   ├── context_builder.py # Formats retrieved docs + query into context string/list
+│   │   │   ├── service.py  # Orchestrates RAG flow (retrieve->build->generate using core.manager)
+│   │   │   ├── chains.py   # Optional: RAG-specific LangChain chains
+│   │   │   └── prompts.py  # RAG-specific prompts (e.g., "Use the following context to answer...")
+│   │   ├── agent/          # Agent feature logic
+│   │   │   ├── __init__.py
+│   │   │   ├── tools/      # Agent tool definitions
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── base_tool.py # Optional base class for tools
+│   │   │   │   ├── web_search_tool.py
+│   │   │   │   └── document_search_tool.py # Tool that likely uses llm.rag.service
+│   │   │   ├── executor.py # Sets up and runs the LangChain agent executor
+│   │   │   ├── service.py  # Entry point service for executing an agent task
+│   │   │   └── prompts.py  # Agent-specific prompts (system prompts for agent behavior)
+│   │   └── third_party_x/  # EXAMPLE: Future AI-related integration
+│   │       ├── __init__.py
+│   │       ├── client.py
+│   │       ├── service.py
+│   │       └── schemas.py
+│   ├── services/           # Service Layer (Orchestration & Core Business Logic)
+│   │   ├── __init__.py
+│   │   ├── auth_service.py # Handles authentication logic (login, registration)
+│   │   ├── user_service.py # Handles user profile logic
+│   │   ├── conversation_service.py # Manages conversation metadata (settings, model choice)
+│   │   ├── file_management_service.py # Handles file upload logic, triggers processing tasks, checks status
+│   │   └── message_orchestrator.py # KEY: Receives new message requests, determines mode (chat/rag/agent) based on conversation settings, and calls the appropriate service in `llm/`
+│   ├── tasks/              # Background tasks (Celery, RQ, or FastAPI BackgroundTasks logic)
+│   │   ├── __init__.py
+│   │   ├── file_processor.py # Text extraction, OCR from uploaded files
+│   │   └── vector_indexer.py # Chunking, embedding, indexing into Vector DB (Data prep for RAG)
+│   ├── utils/              # General utility functions
+│   │   └── __init__.py
+│   └── main.py             # FastAPI application entrypoint, middleware setup, router inclusion
+├── docker-compose.yml      # Docker Compose for local development environment
+├── Dockerfile              # Dockerfile for building the application image
+├── pyproject.toml          # Project metadata and dependencies (using Poetry or PDM)
+├── README.md               # Project description and setup instructions
+├── cursorrules.yaml        # AI Assistant configuration file (adjust paths accordingly)
+├── scripts/                # Utility scripts (e.g., run dev server, run tests)
+│   └── run_dev.sh
+└── tests/                  # Unit and integration tests
+    ├── __init__.py
+    ├── conftest.py         # Pytest fixtures
+    ├── api/                # Tests for the API layer
+    │   └── v1/
+    ├── db/                 # Tests for repositories/DB interactions
+    │   └── repositories/
+    ├── llm/        # Tests for AI services/features
+    │   ├── core/
+    │   ├── chat/
+    │   ├── rag/
+    │   └── agent/
+    ├── services/           # Tests for the core service layer
+    ├── tasks/              # Tests for background tasks
+    └── utils/              # Tests for utilities
+```

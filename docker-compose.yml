@@ -1,0 +1,91 @@
+version: "3.8"
+
+services:
+  # FastAPI 应用
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+      - ./uploads:/app/uploads
+      - ./chroma_db:/app/chroma_db
+    env_file:
+      - .env
+    environment:
+      - POSTGRES_SERVER=db
+      - REDIS_HOST=redis
+      - MINIO_ENDPOINT=minio:9000
+    depends_on:
+      - db
+      - redis
+      - minio
+    networks:
+      - chatapp-network
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # PostgreSQL 数据库
+  db:
+    image: postgres:15
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    env_file:
+      - .env
+    environment:
+      - POSTGRES_SERVER=db
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_DB=${POSTGRES_DB}
+    ports:
+      - "5432:5432"
+    networks:
+      - chatapp-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis 缓存
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - chatapp-network
+    command: redis-server --appendonly yes
+
+  # MinIO 对象存储 (用于本地开发中的文件存储)
+  minio:
+    image: minio/minio:latest
+    volumes:
+      - minio_data:/data
+    env_file:
+      - .env
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ACCESS_KEY:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_SECRET_KEY:-minioadmin}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    networks:
+      - chatapp-network
+    command: server --console-address ":9001" /data
+
+  # 在生产环境中，您可能会使用以下服务：
+  # - 负载均衡器（如 Traefik 或 Nginx）
+  # - 监控系统（如 Prometheus + Grafana）
+  # - 日志聚合（如 ELK Stack）
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+
+networks:
+  chatapp-network:
+    driver: bridge 

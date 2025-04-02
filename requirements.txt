@@ -1,0 +1,47 @@
+# requirements.txt
+# Main application dependencies for the Multi-LLM Chat App
+
+# --- Core Framework ---
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+pydantic==2.7.1
+pydantic-settings==2.2.1
+
+# --- Database (SQL) ---
+sqlalchemy[asyncio]==2.0.30
+asyncpg==0.29.0
+alembic==1.13.1
+
+# --- Database (Vector) ---
+# Choose one or both depending on your needs. langchain-community often needed for Chroma.
+chromadb==0.5.0
+# pinecone-client==4.1.0 # Uncomment if using Pinecone
+
+# --- Database (Cache) ---
+redis==5.0.4
+
+# --- Database (NoSQL - Optional) ---
+# motor==3.4.0 # Uncomment if using MongoDB
+
+# --- LLM / LangChain ---
+langchain==0.2.1
+langchain-openai==0.1.7
+langchain-anthropic==0.1.11
+langchain-community==0.2.1
+
+# --- Authentication ---
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+
+# --- File Processing ---
+pypdf==4.2.0
+python-docx==1.1.2
+pytesseract==0.3.10
+pillow==10.3.0
+
+# --- Background Tasks (Optional - Choose one if needed beyond FastAPI BackgroundTasks) ---
+# celery==5.4.0 # Uncomment if using Celery
+
+# Note: This file lists main dependencies. Development dependencies (like pytest, ruff, mypy)
+# are typically managed separately, often in a requirements-dev.txt or using tools like Poetry.
+# Also ensure system dependencies like Tesseract OCR engine are installed if using pytesseract.

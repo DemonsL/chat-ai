@@ -1,0 +1,90 @@
+# pyproject.toml
+
+[tool.poetry]
+name = "multi-llm-chat-app" # Choose a suitable name
+version = "0.1.0"
+description = "Multi-model intelligent chat application with RAG and Agent capabilities."
+authors = ["Your Name <you@example.com>"]
+readme = "README.md"
+license = "MIT" # Or your chosen license
+packages = [{include = "app"}]
+
+[tool.poetry.dependencies]
+python = "^3.11" # Recommended modern Python version
+
+# --- Core Framework ---
+fastapi = "^0.111.0" # Current stable FastAPI
+uvicorn = {extras = ["standard"], version = "^0.29.0"} # ASGI server with standard extras
+pydantic = "^2.7.1" # Pydantic v2 is standard
+pydantic-settings = "^2.2.1" # For loading config from .env
+
+# --- Database (SQL) ---
+sqlalchemy = {extras = ["asyncio"], version = "^2.0.30"} # SQLAlchemy v2 with asyncio support
+asyncpg = "^0.29.0" # Async driver for PostgreSQL
+alembic = "^1.13.1" # For database migrations
+
+# --- Database (Vector) ---
+# Choose one or both depending on your needs. langchain-community often needed for Chroma.
+chromadb = "^0.5.0"
+# pinecone-client = "^4.1.0" # Uncomment if using Pinecone
+
+# --- Database (Cache) ---
+redis = "^5.0.4" # Async Redis client (replaces aioredis)
+
+# --- Database (NoSQL - Optional) ---
+# motor = "^3.4.0" # Async driver for MongoDB (Uncomment if using MongoDB)
+
+# --- LLM / LangChain ---
+langchain = "^0.2.1" # Core LangChain library
+langchain-openai = "^0.1.7" # OpenAI specific integrations
+langchain-anthropic = "^0.1.11" # Anthropic specific integrations
+langchain-community = "^0.2.1" # Community integrations (often needed for vector stores like Chroma)
+
+# --- Authentication ---
+python-jose = {extras = ["cryptography"], version = "^3.3.0"} # For JWT handling
+passlib = {extras = ["bcrypt"], version = "^1.7.4"} # For password hashing
+
+# --- File Processing ---
+pypdf = "^4.2.0" # For PDF text extraction
+python-docx = "^1.1.2" # For DOCX text extraction
+pytesseract = "^0.3.10" # OCR wrapper (Requires Tesseract OCR engine installed on the system)
+pillow = "^10.3.0" # Image handling library (often needed with OCR)
+
+# --- Background Tasks (Optional - Choose one if needed beyond FastAPI BackgroundTasks) ---
+# celery = "^5.4.0" # Uncomment if using Celery
+# flower = "^2.0.1" # Optional Celery monitoring tool (add to dev group if preferred)
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.2.1" # Testing framework
+pytest-asyncio = "^0.23.7" # For testing async code with pytest
+httpx = "^0.27.0" # Async HTTP client for testing API endpoints
+pytest-mock = "^3.12.0" # Mocking library fixture for pytest
+ruff = "^0.4.4" # Fast linter and formatter
+mypy = "^1.10.0" # Static type checker
+pre-commit = "^3.7.0" # For running checks before commits (optional but recommended)
+types-redis = "^4.6.0" # Type hints for redis
+# Add other type hints as needed, e.g., types-passlib, types-python-jose
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+# --- Tool Configurations (Optional but Recommended) ---
+
+[tool.ruff]
+line-length = 88
+select = ["E", "W", "F", "I", "UP", "C4", "B", "A", "RUF"] # Select rule sets (adjust as needed)
+ignore = ["E501"] # Ignore line length errors (handled by formatter)
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true # Can be strict later by removing this
+# Add plugins if needed, e.g., for Pydantic or SQLAlchemy
+
+# 请确保你已经将提供的 pyproject.toml 文件放在项目根目录。
+
