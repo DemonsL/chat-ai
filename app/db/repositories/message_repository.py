@@ -1,7 +1,7 @@
 from typing import List, Optional
 from uuid import UUID
 
-from sqlalchemy import select, desc
+from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.message import Message
@@ -13,6 +13,7 @@ class MessageRepository(BaseRepository[Message, MessageCreate, MessageUpdate]):
     """
     消息仓库类
     """
+
     def __init__(self, db_session: AsyncSession):
         super().__init__(db_session, Message)
 
@@ -45,4 +46,4 @@ class MessageRepository(BaseRepository[Message, MessageCreate, MessageUpdate]):
             .limit(limit)
         )
         result = await self.db.execute(query)
-        return result.scalars().all() 
+        return result.scalars().all()

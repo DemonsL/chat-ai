@@ -13,7 +13,9 @@ from app.services.file_management_service import FileManagementService
 router = APIRouter()
 
 
-@router.post("/upload", response_model=UserFileResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/upload", response_model=UserFileResponse, status_code=status.HTTP_201_CREATED
+)
 async def upload_file(
     file: UploadFile = File(...),
     description: str = None,
@@ -22,7 +24,7 @@ async def upload_file(
 ):
     """
     上传文件
-    
+
     接收文件上传，验证文件类型和大小，并将其保存到系统中。
     支持文本文件(txt, pdf, docx等)和图片文件(png, jpg, jpeg等)。
     """
@@ -99,7 +101,7 @@ async def download_file(
             file_id=file_id,
             user_id=current_user.id,
         )
-        
+
         return StreamingResponse(
             file_stream,
             media_type="application/octet-stream",
@@ -142,4 +144,4 @@ async def delete_file(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=str(e),
-        ) 
+        )

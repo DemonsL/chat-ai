@@ -2,10 +2,13 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from app.api.deps import get_current_active_user, get_current_admin_user, get_model_service
+from app.api.deps import (get_current_active_user, get_current_admin_user,
+                          get_model_service)
 from app.core.exceptions import NotFoundException, PermissionDeniedException
 from app.db.models.user import User
-from app.schemas.model import ModelCapability, ModelConfigCreate, ModelConfigResponse, ModelConfigUpdate, ModelInfo
+from app.schemas.model import (ModelCapability, ModelConfigCreate,
+                               ModelConfigResponse, ModelConfigUpdate,
+                               ModelInfo)
 from app.services.model_service import ModelService
 
 router = APIRouter()
@@ -18,7 +21,7 @@ async def get_models(
 ):
     """
     获取所有可用模型列表
-    
+
     可选按能力筛选：chat, vision, embedding
     """
     if capability:
@@ -47,7 +50,9 @@ async def get_model_by_id(
         )
 
 
-@router.post("", response_model=ModelConfigResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "", response_model=ModelConfigResponse, status_code=status.HTTP_201_CREATED
+)
 async def create_model(
     model_in: ModelConfigCreate,
     current_user: User = Depends(get_current_admin_user),
@@ -92,4 +97,4 @@ async def update_model(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=str(e),
-        ) 
+        )

@@ -1,9 +1,10 @@
-from typing import Any, Dict, Generic, List, Optional, Type, TypeVar, Union, cast
+from typing import (Any, Dict, Generic, List, Optional, Type, TypeVar, Union,
+                    cast)
 from uuid import UUID
 
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
-from sqlalchemy import select, update, delete
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.base import Base
@@ -17,6 +18,7 @@ class BaseRepository(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
     """
     提供基本的CRUD操作的基础仓库
     """
+
     def __init__(self, db_session: AsyncSession, model: Type[ModelType]):
         self.db = db_session
         self.model = model
@@ -29,9 +31,7 @@ class BaseRepository(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         result = await self.db.execute(query)
         return result.scalars().first()
 
-    async def get_multi(
-        self, *, skip: int = 0, limit: int = 100
-    ) -> List[ModelType]:
+    async def get_multi(self, *, skip: int = 0, limit: int = 100) -> List[ModelType]:
         """
         获取多个模型实例（带分页）
         """
@@ -61,11 +61,11 @@ class BaseRepository(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
             update_data = obj_in
         else:
             update_data = obj_in.model_dump(exclude_unset=True)
-        
+
         for field in obj_data:
             if field in update_data:
                 setattr(db_obj, field, update_data[field])
-        
+
         self.db.add(db_obj)
         await self.db.commit()
         await self.db.refresh(db_obj)
@@ -79,4 +79,4 @@ class BaseRepository(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         if obj:
             await self.db.delete(obj)
             await self.db.commit()
-        return obj 
+        return obj

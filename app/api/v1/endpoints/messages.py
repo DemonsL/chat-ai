@@ -22,10 +22,10 @@ async def send_message(
 ):
     """
     发送消息并获取流式响应
-    
+
     提交一条消息到指定对话中，并以流形式返回AI的响应。
     每次响应都是一个JSON对象，包含内容片段和完成状态。
-    
+
     示例响应:
     ```
     {"content": "这是", "done": false}
@@ -46,14 +46,18 @@ async def send_message(
                     yield f"data: {chunk}\n\n"
             except Exception as e:
                 # 记录错误但不暴露详情给客户端
-                error_data = {"error": True, "message": "处理消息时发生错误", "done": True}
+                error_data = {
+                    "error": True,
+                    "message": "处理消息时发生错误",
+                    "done": True,
+                }
                 yield f"data: {error_data}\n\n"
-                
+
         return StreamingResponse(
             event_generator(),
             media_type="text/event-stream",
         )
-        
+
     except NotFoundException as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -68,4 +72,4 @@ async def send_message(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
-        ) 
+        )

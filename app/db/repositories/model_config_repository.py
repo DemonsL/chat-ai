@@ -9,10 +9,13 @@ from app.db.repositories.base_repository import BaseRepository
 from app.schemas.model import ModelConfigCreate, ModelConfigUpdate
 
 
-class ModelConfigRepository(BaseRepository[ModelConfig, ModelConfigCreate, ModelConfigUpdate]):
+class ModelConfigRepository(
+    BaseRepository[ModelConfig, ModelConfigCreate, ModelConfigUpdate]
+):
     """
     模型配置仓库类
     """
+
     def __init__(self, db_session: AsyncSession):
         super().__init__(db_session, ModelConfig)
 
@@ -40,9 +43,12 @@ class ModelConfigRepository(BaseRepository[ModelConfig, ModelConfigCreate, Model
         # 使用JSON操作符 ? 查询具有特定能力的模型
         # 需要使用文本SQL以便使用PostgreSQL的JSONB特定功能
         from sqlalchemy import text
-        sql = text(f"SELECT * FROM modelconfig WHERE capabilities ? :capability AND is_active = true")
+
+        sql = text(
+            f"SELECT * FROM modelconfig WHERE capabilities ? :capability AND is_active = true"
+        )
         result = await self.db.execute(sql, {"capability": capability})
-        
+
         # 处理原生查询结果
         records = result.fetchall()
         models = []
@@ -50,5 +56,5 @@ class ModelConfigRepository(BaseRepository[ModelConfig, ModelConfigCreate, Model
             # 将记录转换为字典，然后创建ModelConfig对象
             model_data = {col: getattr(record, col) for col in record._mapping.keys()}
             models.append(ModelConfig(**model_data))
-        
-        return models 
+
+        return models

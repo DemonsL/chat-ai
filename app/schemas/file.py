@@ -11,6 +11,7 @@ class FileStatus(str, Enum):
     """
     文件状态枚举
     """
+
     PENDING = "pending"
     PROCESSING = "processing"
     INDEXED = "indexed"
@@ -21,6 +22,7 @@ class FileType(str, Enum):
     """
     文件类型枚举
     """
+
     PDF = "pdf"
     DOCX = "docx"
     TXT = "txt"
@@ -31,6 +33,7 @@ class UserFileBase(BaseSchema):
     """
     用户文件基础信息
     """
+
     filename: Optional[str] = None
     original_filename: Optional[str] = None
     file_type: Optional[FileType] = None
@@ -44,6 +47,7 @@ class UserFileCreate(UserFileBase):
     """
     创建用户文件时的数据格式
     """
+
     user_id: UUID
     filename: str
     original_filename: str
@@ -56,6 +60,7 @@ class UserFileUpdate(UserFileBase):
     """
     更新用户文件时的数据格式
     """
+
     status: Optional[FileStatus] = None
     error_message: Optional[str] = None
     metadata: Optional[Dict] = None
@@ -65,12 +70,14 @@ class UserFileInDBBase(UserFileBase, BaseModelSchema):
     """
     数据库中的用户文件信息
     """
+
     user_id: UUID
     storage_path: str
 
 
-class UserFile(UserFileInDBBase):
+class UserFileResponse(UserFileInDBBase):
     """
     API 返回的用户文件信息
     """
-    pass 
+
+    pass

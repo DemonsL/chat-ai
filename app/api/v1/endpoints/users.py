@@ -3,16 +3,17 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.api.deps import get_current_active_user, get_current_admin_user, get_user_service
+from app.api.deps import (get_current_active_user, get_current_admin_user,
+                          get_user_service)
 from app.core.exceptions import NotFoundException, PermissionDeniedException
 from app.db.models.user import User
-from app.schemas.user import UserResponse, UserUpdate
+from app.schemas.user import User, UserUpdate
 from app.services.user_service import UserService
 
 router = APIRouter()
 
 
-@router.get("/me", response_model=UserResponse)
+@router.get("/me", response_model=User)
 async def read_current_user(
     current_user: User = Depends(get_current_active_user),
 ):
@@ -22,7 +23,7 @@ async def read_current_user(
     return current_user
 
 
-@router.put("/me", response_model=UserResponse)
+@router.put("/me", response_model=User)
 async def update_current_user(
     user_in: UserUpdate,
     current_user: User = Depends(get_current_active_user),
@@ -33,9 +34,7 @@ async def update_current_user(
     """
     try:
         updated_user = await user_service.update(
-            user_id=current_user.id, 
-            user_update=user_in, 
-            current_user=current_user
+            user_id=current_user.id, user_update=user_in, current_user=current_user
         )
         return updated_user
     except (NotFoundException, PermissionDeniedException) as e:
@@ -45,7 +44,7 @@ async def update_current_user(
         )
 
 
-@router.get("", response_model=List[UserResponse])
+@router.get("", response_model=List[User])
 async def read_users(
     skip: int = 0,
     limit: int = 100,
@@ -59,7 +58,7 @@ async def read_users(
     return users
 
 
-@router.get("/{user_id}", response_model=UserResponse)
+@router.get("/{user_id}", response_model=User)
 async def read_user_by_id(
     user_id: UUID,
     current_user: User = Depends(get_current_active_user),
@@ -67,14 +66,14 @@ async def read_user_by_id(
 ):
     """
     根据ID获取特定用户
-    
+
     - 普通用户只能获取自己的信息
     - 管理员可以获取任何用户的信息
     """
     try:
         if current_user.id != user_id and not current_user.is_admin:
             raise PermissionDeniedException(detail="没有权限访问其他用户信息")
-        
+
         user = await user_service.get_by_id(user_id=user_id)
         return user
     except NotFoundException as e:
@@ -89,7 +88,7 @@ async def read_user_by_id(
         )
 
 
-@router.put("/{user_id}", response_model=UserResponse)
+@router.put("/{user_id}", response_model=User)
 async def update_user(
     user_id: UUID,
     user_in: UserUpdate,
@@ -101,9 +100,7 @@ async def update_user(
     """
     try:
         updated_user = await user_service.update(
-            user_id=user_id, 
-            user_update=user_in, 
-            current_user=current_user
+            user_id=user_id, user_update=user_in, current_user=current_user
         )
         return updated_user
     except NotFoundException as e:
@@ -133,4 +130,4 @@ async def deactivate_user(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=str(e),
-        ) 
+        )

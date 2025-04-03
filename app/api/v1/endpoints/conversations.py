@@ -3,10 +3,12 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from app.api.deps import get_conversation_service, get_current_active_user, get_message_orchestrator
+from app.api.deps import (get_conversation_service, get_current_active_user,
+                          get_message_orchestrator)
 from app.core.exceptions import NotFoundException, PermissionDeniedException
 from app.db.models.user import User
-from app.schemas.conversation import ConversationCreate, ConversationResponse, ConversationUpdate
+from app.schemas.conversation import (Conversation, ConversationCreate,
+                                      ConversationUpdate)
 from app.schemas.message import MessageResponse
 from app.services.conversation_service import ConversationService
 from app.services.message_orchestrator import MessageOrchestrator
@@ -14,7 +16,7 @@ from app.services.message_orchestrator import MessageOrchestrator
 router = APIRouter()
 
 
-@router.post("", response_model=ConversationResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=Conversation, status_code=status.HTTP_201_CREATED)
 async def create_conversation(
     conversation_in: ConversationCreate,
     current_user: User = Depends(get_current_active_user),
@@ -35,7 +37,7 @@ async def create_conversation(
         )
 
 
-@router.get("", response_model=List[ConversationResponse])
+@router.get("", response_model=List[Conversation])
 async def read_conversations(
     skip: int = 0,
     limit: int = 100,
@@ -51,7 +53,7 @@ async def read_conversations(
     return conversations
 
 
-@router.get("/{conversation_id}", response_model=ConversationResponse)
+@router.get("/{conversation_id}", response_model=Conversation)
 async def read_conversation(
     conversation_id: UUID,
     current_user: User = Depends(get_current_active_user),
@@ -103,7 +105,7 @@ async def read_conversation_messages(
         )
 
 
-@router.put("/{conversation_id}", response_model=ConversationResponse)
+@router.put("/{conversation_id}", response_model=Conversation)
 async def update_conversation(
     conversation_id: UUID,
     conversation_in: ConversationUpdate,
@@ -115,9 +117,9 @@ async def update_conversation(
     """
     try:
         conversation = await conversation_service.update(
-            conversation_id=conversation_id, 
-            conversation_in=conversation_in, 
-            user_id=current_user.id
+            conversation_id=conversation_id,
+            conversation_in=conversation_in,
+            user_id=current_user.id,
         )
         return conversation
     except NotFoundException as e:
@@ -159,4 +161,4 @@ async def delete_conversation(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=str(e),
-        ) 
+        )

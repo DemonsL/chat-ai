@@ -1,13 +1,18 @@
 # pyproject.toml
 
 [tool.poetry]
-name = "multi-llm-chat-app" # Choose a suitable name
+name = "chat-ai" # Choose a suitable name
 version = "0.1.0"
 description = "Multi-model intelligent chat application with RAG and Agent capabilities."
-authors = ["Your Name <you@example.com>"]
+authors = ["DemonsL <demonsl@example.com>"]
 readme = "README.md"
 license = "MIT" # Or your chosen license
 packages = [{include = "app"}]
+
+[[tool.poetry.source]]
+name = "aliyun"
+url = "https://mirrors.aliyun.com/pypi/simple"
+priority = "supplemental"
 
 [tool.poetry.dependencies]
 python = "^3.11" # Recommended modern Python version
@@ -85,6 +90,3 @@ warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true # Can be strict later by removing this
 # Add plugins if needed, e.g., for Pydantic or SQLAlchemy
-
-# 请确保你已经将提供的 pyproject.toml 文件放在项目根目录。
-

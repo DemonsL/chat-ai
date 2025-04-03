@@ -14,6 +14,7 @@ class UserService:
     """
     用户服务，处理用户信息的获取和更新
     """
+
     def __init__(self, db_session: AsyncSession):
         self.user_repo = UserRepository(db_session)
 
@@ -26,7 +27,9 @@ class UserService:
             raise NotFoundException(detail="用户不存在")
         return user
 
-    async def update(self, user_id: UUID, user_update: UserUpdate, current_user_id: UUID) -> User:
+    async def update(
+        self, user_id: UUID, user_update: UserUpdate, current_user_id: UUID
+    ) -> User:
         """
         更新用户信息
         """
@@ -44,7 +47,7 @@ class UserService:
 
         # 准备更新数据
         update_data = user_update.model_dump(exclude_unset=True)
-        
+
         # 如果要更新密码，需要哈希处理
         if "password" in update_data:
             hashed_password = get_password_hash(update_data["password"])
@@ -67,7 +70,7 @@ class UserService:
         # 检查权限（通常只有管理员可以停用账号）
         if user_id == current_user_id:
             raise PermissionDeniedException(detail="不能停用自己的账号")
-            
+
         current_user = await self.user_repo.get_by_id(current_user_id)
         if not current_user or not current_user.is_admin:
             raise PermissionDeniedException(detail="无权停用用户账号")
@@ -78,4 +81,4 @@ class UserService:
             raise NotFoundException(detail="用户不存在")
 
         # 执行停用
-        return await self.user_repo.update(db_obj=user, obj_in={"is_active": False}) 
+        return await self.user_repo.update(db_obj=user, obj_in={"is_active": False})

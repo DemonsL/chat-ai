@@ -9,6 +9,7 @@ class UserFile(Base):
     """
     用户上传的文件模型
     """
+
     user_id = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=False)
     filename = Column(String(255), nullable=False)
     original_filename = Column(String(255), nullable=False)
@@ -18,12 +19,12 @@ class UserFile(Base):
     status = Column(
         Enum("pending", "processing", "indexed", "error", name="file_status"),
         nullable=False,
-        default="pending"
+        default="pending",
     )
     error_message = Column(Text, nullable=True)
-    
+
     # 文件处理和索引的元数据
-    metadata = Column(JSONB, nullable=True)  # 可能包含页数、OCR信息、索引记录等
-    
+    file_metadata = Column(JSONB, nullable=True)  # 可能包含页数、OCR信息、索引记录等
+
     # 关系
-    user = relationship("User", backref="files") 
+    user = relationship("User", backref="files")

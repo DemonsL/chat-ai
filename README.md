@@ -58,12 +58,6 @@
 
 ### 本地开发
 
-1. 克隆仓库
-```bash
-git clone <仓库地址>
-cd multi-llm-chat-app
-```
-
 2. 创建并激活虚拟环境
 ```bash
 python -m venv venv
@@ -121,6 +115,51 @@ docker-compose up -d
 - API 端点定义位于 `app/api/v1/endpoints/` 目录
 - 数据库模型定义位于 `app/db/models/` 目录
 - LLM 相关实现位于 `app/llm/` 目录
+
+### 运行开发环境
+
+项目提供了一个脚本来方便地启动开发环境：
+
+```bash
+# 默认配置启动
+bash scripts/run_dev.sh
+
+# 自定义配置
+bash scripts/run_dev.sh --port=8888 --host=127.0.0.1 --workers=2 --log-level=debug
+```
+
+### 初始化数据库
+
+项目提供了一个脚本来初始化数据库：
+
+```bash
+# 创建数据库并运行迁移
+bash scripts/init_db.sh --create-db
+
+# 仅运行迁移
+bash scripts/init_db.sh
+
+# 填充种子数据
+bash scripts/init_db.sh --seed
+```
+
+### 运行测试
+
+项目使用pytest进行测试，并提供了一个脚本来方便地运行测试：
+
+```bash
+# 运行所有测试
+bash scripts/run_tests.sh
+
+# 仅运行单元测试
+bash scripts/run_tests.sh --unit
+
+# 仅运行集成测试
+bash scripts/run_tests.sh --integration
+
+# 生成测试覆盖率报告
+bash scripts/run_tests.sh --coverage
+```
 
 ## 协议
 

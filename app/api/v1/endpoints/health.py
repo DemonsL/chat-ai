@@ -10,6 +10,7 @@ router = APIRouter()
 
 class HealthResponse(BaseModel):
     """健康检查响应模型"""
+
     status: str
     version: str
     environment: str
@@ -19,11 +20,11 @@ class HealthResponse(BaseModel):
 async def health_check(db_session: AsyncSession = Depends(get_db_session)):
     """
     健康检查端点
-    
+
     返回API的当前状态和版本信息。
     """
     return {
         "status": "ok",
         "version": settings.VERSION,
-        "environment": settings.ENVIRONMENT
-    } 
+        "environment": settings.ENVIRONMENT,
+    }

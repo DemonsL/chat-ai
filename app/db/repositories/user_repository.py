@@ -13,6 +13,7 @@ class UserRepository(BaseRepository[User, UserCreate, UserUpdate]):
     """
     用户仓库类
     """
+
     def __init__(self, db_session: AsyncSession):
         super().__init__(db_session, User)
 
@@ -30,4 +31,4 @@ class UserRepository(BaseRepository[User, UserCreate, UserUpdate]):
         """
         query = select(User).where(User.username == username)
         result = await self.db.execute(query)
-        return result.scalars().first() 
+        return result.scalars().first()

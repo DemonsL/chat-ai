@@ -13,6 +13,7 @@ class UserFileRepository(BaseRepository[UserFile, UserFileCreate, UserFileUpdate
     """
     用户文件仓库类
     """
+
     def __init__(self, db_session: AsyncSession):
         super().__init__(db_session, UserFile)
 
@@ -36,20 +37,18 @@ class UserFileRepository(BaseRepository[UserFile, UserFileCreate, UserFileUpdate
         """
         获取特定用户的特定文件
         """
-        query = (
-            select(UserFile)
-            .where(UserFile.id == id, UserFile.user_id == user_id)
-        )
+        query = select(UserFile).where(UserFile.id == id, UserFile.user_id == user_id)
         result = await self.db.execute(query)
         return result.scalars().first()
 
-    async def get_by_ids_for_user(self, ids: List[UUID], user_id: UUID) -> List[UserFile]:
+    async def get_by_ids_for_user(
+        self, ids: List[UUID], user_id: UUID
+    ) -> List[UserFile]:
         """
         获取特定用户的多个文件
         """
-        query = (
-            select(UserFile)
-            .where(UserFile.id.in_(ids), UserFile.user_id == user_id)
+        query = select(UserFile).where(
+            UserFile.id.in_(ids), UserFile.user_id == user_id
         )
         result = await self.db.execute(query)
         return result.scalars().all()
@@ -68,4 +67,4 @@ class UserFileRepository(BaseRepository[UserFile, UserFileCreate, UserFileUpdate
             self.db.add(file)
             await self.db.commit()
             await self.db.refresh(file)
-        return file 
+        return file

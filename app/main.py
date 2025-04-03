@@ -5,11 +5,13 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.api.api import api_router
 from app.core.config import settings
 from app.core.exceptions import APIException
+from app.llm.core.config import init_model_configs
 
 # 配置日志
 logging.basicConfig(
@@ -21,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
     """请求日志中间件"""
-    
+
     async def dispatch(self, request: Request, call_next):
         logger.info(f"Request: {request.method} {request.url.path}")
         response = await call_next(request)
@@ -34,7 +36,11 @@ async def lifespan(app: FastAPI):
     # 启动时执行
     # 创建必要的目录
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
-    
+    os.makedirs(settings.CHROMA_DB_DIR, exist_ok=True)
+
+    # 初始化模型配置
+    await init_model_configs()
+
     logger.info("应用程序启动")
     yield
     # 关闭时执行
@@ -87,6 +93,8 @@ async def root():
         "version": settings.VERSION,
     }
 
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True) 
+
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)

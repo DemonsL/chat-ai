@@ -3,7 +3,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 
 from app.api.deps import get_auth_service
 from app.schemas.token import Token
-from app.schemas.user import UserCreate, UserResponse
+from app.schemas.user import User, UserCreate
 from app.services.auth_service import AuthService
 
 router = APIRouter()
@@ -16,7 +16,7 @@ async def login(
 ):
     """
     使用OAuth2 密码流获取JWT访问令牌
-    
+
     - **username**: 用户名或邮箱
     - **password**: 密码
     """
@@ -32,14 +32,14 @@ async def login(
     return result
 
 
-@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/register", response_model=User, status_code=status.HTTP_201_CREATED)
 async def register(
     user_in: UserCreate,
     auth_service: AuthService = Depends(get_auth_service),
 ):
     """
     注册新用户
-    
+
     - **username**: 用户名
     - **email**: 邮箱
     - **password**: 密码
@@ -52,4 +52,4 @@ async def register(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
-        ) 
+        )

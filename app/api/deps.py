@@ -20,14 +20,15 @@ from app.services.model_service import ModelService
 from app.services.user_service import UserService
 
 # OAuth2 token URL和scheme
-reusable_oauth2 = OAuth2PasswordBearer(
-    tokenUrl=f"{settings.API_V1_STR}/auth/login"
-)
+reusable_oauth2 = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/login")
+
 
 # 依赖项: 获取数据库会话
-async def get_db_session() -> Generator[AsyncSession, None, None]:
+async def get_db_session() -> AsyncSession:
+    # async for session in get_db():
     async with get_db() as session:
         yield session
+
 
 # 依赖项: 获取当前用户（可选）
 async def get_current_user_optional(
@@ -37,19 +38,18 @@ async def get_current_user_optional(
     if not token:
         return None
     try:
-        payload = jwt.decode(
-            token, settings.SECRET_KEY, algorithms=[ALGORITHM]
-        )
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
         token_data = TokenPayload(**payload)
     except (jwt.JWTError, ValidationError):
         return None
-    
+
     user_repo = UserRepository(db_session)
     user = await user_repo.get_by_id(token_data.sub)
-    
+
     if not user:
         return None
     return user
+
 
 # 依赖项: 获取当前用户（必须）
 async def get_current_user(
@@ -57,24 +57,23 @@ async def get_current_user(
     token: str = Depends(reusable_oauth2),
 ) -> User:
     try:
-        payload = jwt.decode(
-            token, settings.SECRET_KEY, algorithms=[ALGORITHM]
-        )
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
         token_data = TokenPayload(**payload)
     except (jwt.JWTError, ValidationError):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="无效的认证凭据",
         )
-    
+
     user_repo = UserRepository(db_session)
     user = await user_repo.get_by_id(token_data.sub)
-    
+
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户未找到")
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="用户未激活")
     return user
+
 
 # 依赖项: 获取当前活跃用户
 async def get_current_active_user(
@@ -83,6 +82,7 @@ async def get_current_active_user(
     if not current_user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="用户未激活")
     return current_user
+
 
 # 依赖项: 获取当前管理员用户
 async def get_current_admin_user(
@@ -94,21 +94,39 @@ async def get_current_admin_user(
         )
     return current_user
 
+
 # 服务依赖项
-async def get_auth_service(db_session: AsyncSession = Depends(get_db_session)) -> AuthService:
+async def get_auth_service(
+    db_session: AsyncSession = Depends(get_db_session),
+) -> AuthService:
     return AuthService(db_session)
 
-async def get_user_service(db_session: AsyncSession = Depends(get_db_session)) -> UserService:
+
+async def get_user_service(
+    db_session: AsyncSession = Depends(get_db_session),
+) -> UserService:
     return UserService(db_session)
 
-async def get_conversation_service(db_session: AsyncSession = Depends(get_db_session)) -> ConversationService:
+
+async def get_conversation_service(
+    db_session: AsyncSession = Depends(get_db_session),
+) -> ConversationService:
     return ConversationService(db_session)
 
-async def get_message_orchestrator(db_session: AsyncSession = Depends(get_db_session)) -> MessageOrchestrator:
+
+async def get_message_orchestrator(
+    db_session: AsyncSession = Depends(get_db_session),
+) -> MessageOrchestrator:
     return MessageOrchestrator(db_session)
 
-async def get_file_service(db_session: AsyncSession = Depends(get_db_session)) -> FileManagementService:
+
+async def get_file_service(
+    db_session: AsyncSession = Depends(get_db_session),
+) -> FileManagementService:
     return FileManagementService(db_session)
 
-async def get_model_service(db_session: AsyncSession = Depends(get_db_session)) -> ModelService:
-    return ModelService(db_session) 
+
+async def get_model_service(
+    db_session: AsyncSession = Depends(get_db_session),
+) -> ModelService:
+    return ModelService(db_session)
