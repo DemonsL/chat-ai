@@ -3,8 +3,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.api.deps import (get_current_active_user, get_current_admin_user,
-                          get_user_service)
+from app.api.dependencies import (get_current_active_user,
+                                  get_current_admin_user, get_user_service)
 from app.core.exceptions import NotFoundException, PermissionDeniedException
 from app.db.models.user import User
 from app.schemas.user import User, UserUpdate

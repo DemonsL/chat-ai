@@ -1,33 +1,21 @@
-import logging
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from sqlalchemy.ext.asyncio import AsyncSession
-from starlette.middleware.base import BaseHTTPMiddleware
+from loguru import logger
 
-from app.api.api import api_router
+from app.api.exceptions import setup_exception_handlers
+from app.api.middlewares import RequestLoggingMiddleware
+from app.api.v1.router import api_router
 from app.core.config import settings
-from app.core.exceptions import APIException
+from app.core.events import shutdown_event_handler, startup_event_handler
+from app.core.logging import setup_logging
 from app.llm.core.config import init_model_configs
+from app.monitoring.metrics import setup_metrics
 
-# 配置日志
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
-logger = logging.getLogger(__name__)
-
-
-class RequestLoggingMiddleware(BaseHTTPMiddleware):
-    """请求日志中间件"""
-
-    async def dispatch(self, request: Request, call_next):
-        logger.info(f"Request: {request.method} {request.url.path}")
-        response = await call_next(request)
-        return response
+# 设置日志系统
+setup_logging()
 
 
 @asynccontextmanager
@@ -51,25 +39,13 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
-    description="基于FastAPI的AI聊天应用API",
+    description=settings.DESCRIPTION,
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url=f"{settings.API_V1_STR}/docs",
+    redoc_url=f"{settings.API_V1_STR}/redoc",
     lifespan=lifespan,
 )
 
-
-# 异常处理
-@app.exception_handler(APIException)
-async def api_exception_handler(request: Request, exc: APIException):
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={"detail": exc.detail},
-    )
-
-
-# 添加中间件
-app.add_middleware(RequestLoggingMiddleware)
 
 # 添加CORS中间件
 app.add_middleware(
@@ -80,6 +56,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# 添加中间件
+app.add_middleware(RequestLoggingMiddleware)
+
+
+# 配置异常处理
+setup_exception_handlers(app)
+
+
+# 设置监控
+setup_metrics(app)
+
+
+# 注册事件处理器
+app.add_event_handler("startup", startup_event_handler)
+app.add_event_handler("shutdown", shutdown_event_handler)
+
+
 # 包含API路由
 app.include_router(api_router, prefix=settings.API_V1_STR)
 
@@ -89,7 +83,7 @@ async def root():
     """根路径响应"""
     return {
         "message": f"欢迎使用 {settings.PROJECT_NAME} API",
-        "docs": "/docs",
+        "docs": f"{settings.API_V1_STR}/docs",
         "version": settings.VERSION,
     }
 

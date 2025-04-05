@@ -1,0 +1,39 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0 # Use the latest version
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-toml
+      - id: check-added-large-files
+
+  - repo: https://github.com/psf/black
+    rev: 24.4.2 # Use the latest version
+    hooks:
+      - id: black
+        language_version: python3.10 # Match your project's Python version
+
+  # Choose one: flake8 or ruff
+  # - repo: https://github.com/pycqa/flake8
+  #   rev: 7.0.0 # Use the latest version
+  #   hooks:
+  #     - id: flake8
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.4.1 # Use the latest version
+    hooks:
+      - id: ruff
+        args: [--fix] # Auto-fix issues
+      - id: ruff-format # If using ruff for formatting instead of black
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.9.0 # Use the latest version
+    hooks:
+      - id: mypy
+        # Optional: add args if needed, e.g., --ignore-missing-imports
+        # args: [--config-file=mypy.ini]
+        additional_dependencies: [pydantic, sqlalchemy, passlib, types-requests] # Add types for libs used
+
+# To install: pip install -r dev-requirements.txt && pre-commit install

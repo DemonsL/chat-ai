@@ -1,14 +1,7 @@
-import logging
+from loguru import logger
 
 from app.db.repositories.model_config_repository import ModelConfigRepository
 from app.db.session import get_db
-
-# 配置日志
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
-logger = logging.getLogger(__name__)
 
 
 async def init_model_configs():

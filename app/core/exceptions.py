@@ -1,18 +1,6 @@
 from fastapi import HTTPException, status
 
 
-class APIException(Exception):
-    """API异常类"""
-
-    pass
-
-
-class ChatAppException(Exception):
-    """基础异常类"""
-
-    pass
-
-
 class CredentialsException(HTTPException):
     """认证失败异常"""
 

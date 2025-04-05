@@ -1,0 +1,27 @@
+# -i https://mirrors.aliyun.com/pypi/simple
+
+# Testing
+pytest
+pytest-cov
+httpx # Required by FastAPI's TestClient
+
+# Linting & Formatting
+black==24.8.0
+isort==5.13.2
+flake8==7.1.1
+# Alternatively, use ruff: pip install ruff
+# ruff
+
+# Type Checking
+mypy
+
+# Pre-commit Hooks
+pre-commit
+
+# Database Migrations
+# alembic
+
+# Environment variable loading (useful for local dev/tests)
+# python-dotenv
+
+# Add any other development-specific tools here

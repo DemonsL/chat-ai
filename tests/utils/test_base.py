@@ -17,7 +17,7 @@ from app.db.session import get_db
 from app.main import app
 
 # 创建测试数据库引擎
-TEST_DATABASE_URL = settings.DATABASE_URL.replace("/chatai", "/test_chatai")
+TEST_DATABASE_URL = settings.SQLALCHEMY_DATABASE_URI.replace("/chatai", "/test_chatai")
 test_engine = create_async_engine(str(TEST_DATABASE_URL), echo=False)
 TestingSessionLocal = sessionmaker(
     test_engine, class_=AsyncSession, expire_on_commit=False

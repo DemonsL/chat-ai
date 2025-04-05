@@ -3,8 +3,9 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from app.api.deps import (get_conversation_service, get_current_active_user,
-                          get_message_orchestrator)
+from app.api.dependencies import (get_conversation_service,
+                                  get_current_active_user,
+                                  get_message_orchestrator)
 from app.core.exceptions import NotFoundException, PermissionDeniedException
 from app.db.models.user import User
 from app.schemas.conversation import (Conversation, ConversationCreate,

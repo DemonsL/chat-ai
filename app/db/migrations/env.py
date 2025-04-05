@@ -16,7 +16,7 @@ from app.db.models.base import Base  # 导入基础模型
 config = context.config
 
 # 设置 sqlalchemy.url
-config.set_main_option("sqlalchemy.url", str(settings.DATABASE_URL))
+config.set_main_option("sqlalchemy.url", str(settings.SQLALCHEMY_DATABASE_URI))
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.

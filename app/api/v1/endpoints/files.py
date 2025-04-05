@@ -4,7 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
 
-from app.api.deps import get_current_active_user, get_file_service
+from app.api.dependencies import get_current_active_user, get_file_service
 from app.core.exceptions import NotFoundException, PermissionDeniedException
 from app.db.models.user import User
 from app.schemas.file import UserFileResponse
