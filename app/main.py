@@ -12,6 +12,7 @@ from app.core.config import settings
 from app.core.events import shutdown_event_handler, startup_event_handler
 from app.core.logging import setup_logging
 from app.llm.core.config import init_model_configs
+from app.llm.core.factory import register_default_providers
 from app.monitoring.metrics import setup_metrics
 
 # 设置日志系统
@@ -25,6 +26,9 @@ async def lifespan(app: FastAPI):
     # 创建必要的目录
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
     os.makedirs(settings.CHROMA_DB_DIR, exist_ok=True)
+
+    # 注册默认LLM提供商
+    register_default_providers()
 
     # 初始化模型配置
     await init_model_configs()

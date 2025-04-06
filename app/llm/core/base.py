@@ -108,17 +108,17 @@ class LLMFactory:
         返回:
             对应提供商的LLM实例
         """
+        from app.core.config import settings
+        from app.llm.core.langchain_llm import LangChainLLM
+
+        # 使用LangChain实现
         if provider == "openai":
-            from app.llm.core.openai_llm import OpenAILLM
-
-            return OpenAILLM()
+            return LangChainLLM(provider="openai", api_key=settings.OPENAI_API_KEY)
         elif provider == "anthropic":
-            from app.llm.core.anthropic_llm import AnthropicLLM
-
-            return AnthropicLLM()
+            return LangChainLLM(
+                provider="anthropic", api_key=settings.ANTHROPIC_API_KEY
+            )
         elif provider == "deepseek":
-            from app.llm.core.deepseek_llm import DeepseekLLM
-
-            return DeepseekLLM()
+            return LangChainLLM(provider="deepseek", api_key=settings.DEEPSEEK_API_KEY)
         else:
             raise ValueError(f"不支持的LLM提供商: {provider}")

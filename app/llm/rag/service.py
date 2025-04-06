@@ -5,6 +5,7 @@ from uuid import UUID
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
 from langchain_openai import OpenAIEmbeddings
+from loguru import logger
 
 from app.core.config import settings
 from app.core.exceptions import NotFoundException
@@ -112,7 +113,7 @@ class RAGService:
                             retrieved_docs.append(doc.page_content)
         except Exception as e:
             # 记录错误但继续，使用无增强的对话作为回退
-            print(f"检索失败: {str(e)}")
+            logger.error(f"检索失败: {str(e)}")
 
         # 如果有检索结果，添加到系统提示中
         if retrieved_docs:

@@ -17,6 +17,7 @@ from app.services.conversation_service import ConversationService
 from app.services.file_management_service import FileManagementService
 from app.services.message_orchestrator import MessageOrchestrator
 from app.services.model_service import ModelService
+from app.services.task_monitor_service import TaskMonitorService
 from app.services.user_service import UserService
 
 # OAuth2 token URL和scheme
@@ -130,3 +131,10 @@ async def get_model_service(
     db_session: AsyncSession = Depends(get_db_session),
 ) -> ModelService:
     return ModelService(db_session)
+
+
+def get_task_monitor_service(
+    db_session: AsyncSession = Depends(get_db_session),
+) -> TaskMonitorService:
+    """获取任务监控服务"""
+    return TaskMonitorService(db_session)
