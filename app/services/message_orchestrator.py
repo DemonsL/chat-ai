@@ -11,10 +11,9 @@ from app.db.repositories.conversation_repository import ConversationRepository
 from app.db.repositories.message_repository import MessageRepository
 from app.db.repositories.model_config_repository import ModelConfigRepository
 from app.db.repositories.user_file_repository import UserFileRepository
-from app.llm.agent.service import AgentService
-from app.llm.chat.service import ChatService
-from app.llm.rag.service import RAGService
 from app.schemas.message import MessageRole
+from app.llm.core.manage import LLMOrchestratorService
+from app.services.retrieval_service import RetrievalService
 
 
 class MessageOrchestrator:
@@ -30,26 +29,12 @@ class MessageOrchestrator:
         self.model_repo = ModelConfigRepository(db_session)
         self.file_repo = UserFileRepository(db_session)
 
-        # 创建聊天服务
-        self.chat_service = ChatService(
-            message_repo=self.message_repo,
-            conversation_repo=self.conversation_repo,
-            model_repo=self.model_repo,
-        )
-
-        # 创建RAG服务
-        self.rag_service = RAGService(
-            message_repo=self.message_repo,
-            conversation_repo=self.conversation_repo,
-            model_repo=self.model_repo,
-            file_repo=self.file_repo,
-        )
-
-        # 创建Agent服务
-        self.agent_service = AgentService(
-            message_repo=self.message_repo,
-            conversation_repo=self.conversation_repo,
-            model_repo=self.model_repo,
+        # 创建LLM编排服务（无数据库依赖）
+        self.llm_orchestrator = LLMOrchestratorService()
+        
+        # 创建检索服务
+        self.retrieval_service = RetrievalService(
+            file_repo=self.file_repo
         )
 
     async def handle_message(
@@ -87,26 +72,91 @@ class MessageOrchestrator:
         )
 
         try:
-            # 根据会话模式选择处理服务
+            # 获取模型配置
+            model_config = await self.model_repo.get_by_model_id(conversation.model_id)
+            if not model_config or not model_config.is_active:
+                raise NotFoundException(detail="所选模型不可用")
+
+            # 获取历史消息
+            history = await self.message_repo.get_conversation_history(conversation_id)
+            
+            # 转换消息格式
+            messages = []
+            for msg in history:
+                messages.append({"role": msg.role, "content": msg.content})
+            
+            # 添加当前消息
+            messages.append({"role": "user", "content": content})
+            
+            # 准备模型配置，确保必要的参数存在
+            extra_params = model_config.config or {}
+            
+            # 确保API密钥存在
+            if not extra_params.get("api_key") and not extra_params.get("google_api_key"):
+                # 根据提供商添加默认的API密钥
+                import os
+                if model_config.provider == "openai":
+                    extra_params["api_key"] = os.getenv("OPENAI_API_KEY")
+                elif model_config.provider == "anthropic":
+                    extra_params["api_key"] = os.getenv("ANTHROPIC_API_KEY")
+                elif model_config.provider == "google-genai":
+                    extra_params["google_api_key"] = os.getenv("GOOGLE_API_KEY")
+                elif model_config.provider == "deepseek":
+                    extra_params["api_key"] = os.getenv("DEEPSEEK_API_KEY")
+            
+            model_config_dict = {
+                "provider": model_config.provider,
+                "model_id": model_config.model_id,
+                "max_tokens": model_config.max_tokens,
+                "temperature": model_config.config.get("temperature") if model_config.config else 0.7,
+                "extra_params": extra_params
+            }
+            
+            # 根据会话模式选择处理方式
             if conversation.mode == "chat":
-                # 使用聊天服务
-                service_stream = self.chat_service.process_message(
-                    conversation_id=conversation_id, content=content, metadata=metadata
+                # 使用基础聊天
+                service_stream = self.llm_orchestrator.process_chat(
+                    messages=messages,
+                    model_config=model_config_dict,
+                    system_prompt=conversation.system_prompt,
                 )
             elif conversation.mode == "rag":
-                # 使用RAG服务
-                service_stream = self.rag_service.process_message(
-                    conversation_id=conversation_id, content=content, metadata=metadata
+                # 使用RAG模式
+                # 获取会话关联的文件
+                file_ids = []
+                if conversation.files:
+                    file_ids = [file.id for file in conversation.files]
+                
+                # 检索相关文档
+                retrieved_docs = await self.retrieval_service.retrieve_documents(
+                    query=content,
+                    file_ids=file_ids,
+                    top_k=5,
+                    similarity_threshold=0.8
+                )
+                
+                service_stream = self.llm_orchestrator.process_rag(
+                    messages=messages,
+                    model_config=model_config_dict,
+                    retrieved_documents=retrieved_docs,
+                    system_prompt=conversation.system_prompt,
                 )
             elif conversation.mode == "deepresearch":
-                # 使用Agent服务
-                service_stream = self.agent_service.process_message(
-                    conversation_id=conversation_id, content=content, metadata=metadata
+                # 使用Agent模式
+                available_tools = ["search", "analysis", "research"]  # 这里可以根据配置动态获取
+                
+                service_stream = self.llm_orchestrator.process_agent(
+                    messages=messages,
+                    model_config=model_config_dict,
+                    available_tools=available_tools,
+                    system_prompt=conversation.system_prompt,
                 )
             else:
-                # 默认使用聊天服务
-                service_stream = self.chat_service.process_message(
-                    conversation_id=conversation_id, content=content, metadata=metadata
+                # 默认使用聊天模式
+                service_stream = self.llm_orchestrator.process_chat(
+                    messages=messages,
+                    model_config=model_config_dict,
+                    system_prompt=conversation.system_prompt,
                 )
 
             # 用于收集完整的助手回复
