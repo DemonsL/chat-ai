@@ -12,11 +12,11 @@ from app.db.repositories.message_repository import MessageRepository
 from app.db.repositories.model_config_repository import ModelConfigRepository
 from app.db.repositories.user_file_repository import UserFileRepository
 from app.schemas.message import MessageRole
-from app.llm.core.manage import LLMOrchestratorService
+from app.llm.core.manage import LLMManager
 from app.services.retrieval_service import RetrievalService
 
 
-class MessageOrchestrator:
+class MessageService:
     """
     消息协调器，负责处理不同类型的消息并路由到正确的处理服务
     """
@@ -30,7 +30,7 @@ class MessageOrchestrator:
         self.file_repo = UserFileRepository(db_session)
 
         # 创建LLM编排服务（无数据库依赖）
-        self.llm_orchestrator = LLMOrchestratorService()
+        self.llm_orchestrator = LLMManager()
         
         # 创建检索服务
         self.retrieval_service = RetrievalService(

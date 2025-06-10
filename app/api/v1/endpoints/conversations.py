@@ -12,7 +12,7 @@ from app.schemas.conversation import (Conversation, ConversationCreate,
                                       ConversationUpdate)
 from app.schemas.message import MessageResponse
 from app.services.conversation_service import ConversationService
-from app.services.message_orchestrator import MessageOrchestrator
+from app.services.message_service import MessageService
 
 router = APIRouter()
 
@@ -28,7 +28,7 @@ async def create_conversation(
     """
     try:
         conversation = await conversation_service.create(
-            conversation_in=conversation_in, user_id=current_user.id
+            user_id=current_user.id, conv_create=conversation_in
         )
         return conversation
     except (NotFoundException, ValueError, PermissionDeniedException) as e:
@@ -84,7 +84,7 @@ async def read_conversation(
 async def read_conversation_messages(
     conversation_id: UUID,
     current_user: User = Depends(get_current_active_user),
-    message_orchestrator: MessageOrchestrator = Depends(get_message_orchestrator),
+    message_orchestrator: MessageService = Depends(get_message_orchestrator),
 ):
     """
     获取对话中的所有消息

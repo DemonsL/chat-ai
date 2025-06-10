@@ -43,9 +43,8 @@ class ConversationService:
 
         # 创建会话
         conv_data = conv_create.model_dump(exclude={"file_ids"})
-        conversation = await self.conversation_repo.create(
-            obj_in=ConversationCreate(**conv_data, user_id=user_id)
-        )
+        conv_data["user_id"] = user_id
+        conversation = await self.conversation_repo.create(obj_in=conv_data)
 
         # 如果指定了文件，更新会话与文件的关联
         if conv_create.file_ids:

@@ -78,6 +78,7 @@ class MessageCreateRequest(BaseSchema):
     """
 
     content: str = Field(..., min_length=1, max_length=10000)
+    metadata: Optional[Dict] = None
 
 
 # 流式响应相关

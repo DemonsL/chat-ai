@@ -8,8 +8,9 @@ from app.api.dependencies import (get_current_active_user,
                                   get_message_orchestrator)
 from app.core.exceptions import NotFoundException, PermissionDeniedException
 from app.db.models.user import User
-from app.schemas.message import MessageCreate
-from app.services.message_orchestrator import MessageOrchestrator
+from app.schemas.message import MessageCreateRequest
+from app.services.message_service import MessageService
+from loguru import logger
 
 router = APIRouter()
 
@@ -17,9 +18,9 @@ router = APIRouter()
 @router.post("/{conversation_id}/send", response_class=StreamingResponse)
 async def send_message(
     conversation_id: UUID,
-    message_in: MessageCreate,
+    message_in: MessageCreateRequest,
     current_user: User = Depends(get_current_active_user),
-    message_orchestrator: MessageOrchestrator = Depends(get_message_orchestrator),
+    message_orchestrator: MessageService = Depends(get_message_orchestrator),
 ):
     """
     发送消息并获取流式响应
@@ -46,6 +47,7 @@ async def send_message(
                 ):
                     yield f"data: {chunk}\n\n"
             except Exception as e:
+                logger.error(f"处理消息时发生错误: {e}")
                 # 记录错误但不暴露详情给客户端
                 error_data = {
                     "error": True,

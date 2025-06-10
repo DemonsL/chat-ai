@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat AI - 智能对话助手</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div id="app">
+        <!-- 登录模态框 -->
+        <div id="login-modal" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>登录 Chat AI</h2>
+                    <button class="close-btn" onclick="closeModal('login-modal')">&times;</button>
+                </div>
+                <form id="login-form" class="auth-form">
+                    <div class="form-group">
+                        <input type="text" id="username" placeholder="用户名或邮箱" required>
+                    </div>
+                    <div class="form-group">
+                        <input type="password" id="password" placeholder="密码" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary">登录</button>
+                </form>
+                <div class="auth-switch">
+                    <span>还没有账号？</span>
+                    <a href="#" onclick="switchToRegister()">注册</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- 注册模态框 -->
+        <div id="register-modal" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>注册 Chat AI</h2>
+                    <button class="close-btn" onclick="closeModal('register-modal')">&times;</button>
+                </div>
+                <form id="register-form" class="auth-form">
+                    <div class="form-group">
+                        <input type="text" id="reg-username" placeholder="用户名" required>
+                    </div>
+                    <div class="form-group">
+                        <input type="email" id="reg-email" placeholder="邮箱" required>
+                    </div>
+                    <div class="form-group">
+                        <input type="text" id="reg-fullname" placeholder="姓名（可选）">
+                    </div>
+                    <div class="form-group">
+                        <input type="password" id="reg-password" placeholder="密码" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary">注册</button>
+                </form>
+                <div class="auth-switch">
+                    <span>已有账号？</span>
+                    <a href="#" onclick="switchToLogin()">登录</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- 主应用界面 -->
+        <div id="main-app" class="hidden">
+            <!-- 侧边栏 -->
+            <div class="sidebar">
+                <div class="sidebar-header">
+                    <button class="new-chat-btn" onclick="createNewConversation()">
+                        <i class="fas fa-plus"></i>
+                        新对话
+                    </button>
+                </div>
+                
+                <div class="conversation-list" id="conversation-list">
+                    <!-- 对话列表将动态填充 -->
+                </div>
+
+                <div class="sidebar-footer">
+                    <div class="management-menu" id="management-menu" style="display: none;">
+                        <button class="management-btn" onclick="showModelManagement()" title="模型管理">
+                            <i class="fas fa-cogs"></i>
+                            <span>模型管理</span>
+                        </button>
+                    </div>
+                    
+                    <div class="user-info">
+                        <div class="user-avatar">
+                            <i class="fas fa-user"></i>
+                        </div>
+                        <div class="user-details">
+                            <span id="user-name">用户</span>
+                            <span class="user-status">在线</span>
+                        </div>
+                        <button class="logout-btn" onclick="logout()" title="退出登录">
+                            <i class="fas fa-sign-out-alt"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 主聊天区域 -->
+            <div class="chat-area">
+                <!-- 欢迎页面 -->
+                <div id="welcome-screen" class="welcome-screen">
+                    <div class="welcome-content">
+                        <h1>Chat AI</h1>
+                        <p>你好！我是你的AI助手，有什么可以帮你的吗？</p>
+                        <div class="suggestion-cards">
+                            <div class="suggestion-card" onclick="sendSuggestion('解释量子计算的基本原理')">
+                                <i class="fas fa-atom"></i>
+                                <span>解释量子计算</span>
+                            </div>
+                            <div class="suggestion-card" onclick="sendSuggestion('写一个Python函数来计算斐波那契数列')">
+                                <i class="fas fa-code"></i>
+                                <span>编写代码</span>
+                            </div>
+                            <div class="suggestion-card" onclick="sendSuggestion('帮我制定一个学习计划')">
+                                <i class="fas fa-graduation-cap"></i>
+                                <span>制定计划</span>
+                            </div>
+                            <div class="suggestion-card" onclick="sendSuggestion('翻译这段文字：Hello, how are you?')">
+                                <i class="fas fa-language"></i>
+                                <span>翻译文字</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 聊天界面 -->
+                <div id="chat-interface" class="chat-interface hidden">
+                    <div class="chat-header">
+                        <h3 id="conversation-title">新对话</h3>
+                        <div class="chat-actions">
+                            <button class="action-btn" onclick="clearConversation()" title="清空对话">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                            <button class="action-btn" onclick="shareConversation()" title="分享对话">
+                                <i class="fas fa-share"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="messages-container" id="messages-container">
+                        <!-- 消息将动态填充 -->
+                    </div>
+
+                    <div class="input-area">
+                        <div class="input-container">
+                            <textarea 
+                                id="message-input" 
+                                placeholder="输入你的消息..." 
+                                rows="1"
+                                maxlength="10000"
+                            ></textarea>
+                            <button id="send-button" class="send-btn" onclick="sendMessage()">
+                                <i class="fas fa-paper-plane"></i>
+                            </button>
+                        </div>
+                        <div class="input-footer">
+                            <span class="char-count">0/10000</span>
+                            <div class="model-selector">
+                                <label for="model-select">模型:</label>
+                                <select id="model-select">
+                                    <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+                                    <option value="gpt-4">GPT-4</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 加载动画 -->
+        <div id="loading" class="loading hidden">
+            <div class="spinner"></div>
+            <p>处理中...</p>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html> 

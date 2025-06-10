@@ -38,17 +38,15 @@ class AuthService:
         # 创建新用户
         hashed_password = get_password_hash(user_in.password)
         user_data = user_in.model_dump(exclude={"password"})
-
-        # 创建 UserInDB 对象
-        user_in_db = UserInDB(
-            **user_data,
-            hashed_password=hashed_password,
-            is_admin=False,  # 默认不是管理员
-            is_active=True  # 默认激活
-        )
+        
+        # 添加额外字段
+        user_data.update({
+            "hashed_password": hashed_password,
+            "is_admin": False  # 默认不是管理员
+        })
 
         # 保存到数据库
-        return await self.user_repo.create(obj_in=user_in_db)
+        return await self.user_repo.create(obj_in=user_data)
 
     async def login(self, username: str, password: str) -> Token:
         """

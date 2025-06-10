@@ -21,7 +21,7 @@ class ConversationMode(str, Enum):
     AGENT = "agent"
 
 
-class LLMOrchestratorService:
+class LLMManager:
     """
     LLM编排服务
     专门处理LLM相关的功能，不涉及数据库和业务逻辑

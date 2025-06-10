@@ -21,7 +21,7 @@ async def login(
     - **password**: 密码
     """
     result = await auth_service.login(
-        username_or_email=form_data.username, password=form_data.password
+        username=form_data.username, password=form_data.password
     )
     if not result:
         raise HTTPException(

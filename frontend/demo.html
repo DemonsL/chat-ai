@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat AI Demo - 界面演示</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .demo-notice {
+            position: fixed;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: #faad14;
+            color: #000;
+            padding: 8px 16px;
+            border-radius: 4px;
+            font-size: 14px;
+            z-index: 1002;
+        }
+    </style>
+</head>
+<body>
+    <div class="demo-notice">
+        🎨 界面演示模式 - 无需后端API即可体验界面效果
+    </div>
+
+    <div id="app">
+        <!-- 主应用界面 -->
+        <div id="main-app">
+            <!-- 侧边栏 -->
+            <div class="sidebar">
+                <div class="sidebar-header">
+                    <button class="new-chat-btn" onclick="createNewConversation()">
+                        <i class="fas fa-plus"></i>
+                        新对话
+                    </button>
+                </div>
+                
+                <div class="conversation-list" id="conversation-list">
+                    <div class="conversation-item active">
+                        <span class="conversation-title">演示对话</span>
+                        <div class="conversation-actions">
+                            <button class="conversation-action" title="重命名">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button class="conversation-action" title="删除">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="conversation-item">
+                        <span class="conversation-title">关于前端开发的讨论</span>
+                        <div class="conversation-actions">
+                            <button class="conversation-action" title="重命名">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button class="conversation-action" title="删除">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="conversation-item">
+                        <span class="conversation-title">AI技术交流</span>
+                        <div class="conversation-actions">
+                            <button class="conversation-action" title="重命名">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button class="conversation-action" title="删除">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="sidebar-footer">
+                    <div class="management-menu">
+                        <button class="management-btn" onclick="showDemoModelManagement()" title="模型管理">
+                            <i class="fas fa-cogs"></i>
+                            <span>模型管理</span>
+                        </button>
+                    </div>
+                    
+                    <div class="user-info">
+                        <div class="user-avatar">
+                            <i class="fas fa-user"></i>
+                        </div>
+                        <div class="user-details">
+                            <span>演示用户(管理员)</span>
+                            <span class="user-status">在线</span>
+                        </div>
+                        <button class="logout-btn" title="退出登录">
+                            <i class="fas fa-sign-out-alt"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 主聊天区域 -->
+            <div class="chat-area">
+                <!-- 聊天界面 -->
+                <div id="chat-interface" class="chat-interface">
+                    <div class="chat-header">
+                        <h3 id="conversation-title">演示对话</h3>
+                        <div class="chat-actions">
+                            <button class="action-btn" title="清空对话">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                            <button class="action-btn" title="分享对话">
+                                <i class="fas fa-share"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="messages-container" id="messages-container">
+                        <!-- 示例消息 -->
+                        <div class="message user">
+                            <div class="message-avatar">
+                                <i class="fas fa-user"></i>
+                            </div>
+                            <div class="message-content">
+                                <p>你好！请帮我介绍一下这个聊天界面的特点。</p>
+                            </div>
+                        </div>
+
+                        <div class="message assistant">
+                            <div class="message-avatar">
+                                <i class="fas fa-robot"></i>
+                            </div>
+                            <div class="message-content">
+                                <p>你好！这是一个仿照 ChatGPT 风格设计的聊天界面，具有以下特点：</p>
+                                <br>
+                                <p><strong>🎨 界面设计：</strong></p>
+                                <p>• 深色主题，护眼舒适</p>
+                                <p>• 现代化的UI设计</p>
+                                <p>• 流畅的动画效果</p>
+                                <br>
+                                <p><strong>💬 聊天功能：</strong></p>
+                                <p>• 支持实时对话</p>
+                                <p>• Markdown 格式渲染</p>
+                                <p>• 流式响应显示</p>
+                                <br>
+                                <p><strong>📱 响应式设计：</strong></p>
+                                <p>• 支持桌面和移动设备</p>
+                                <p>• 自适应屏幕尺寸</p>
+                                <br>
+                                <p>代码示例：</p>
+                                <pre><code>// JavaScript 示例
+function sendMessage() {
+    const content = messageInput.value.trim();
+    if (!content) return;
+    
+    addMessageToUI({
+        role: 'user',
+        content: content
+    });
+}</code></pre>
+                            </div>
+                        </div>
+
+                        <div class="message user">
+                            <div class="message-avatar">
+                                <i class="fas fa-user"></i>
+                            </div>
+                            <div class="message-content">
+                                <p>支持哪些技术栈？</p>
+                            </div>
+                        </div>
+
+                        <div class="message assistant">
+                            <div class="message-avatar">
+                                <i class="fas fa-robot"></i>
+                            </div>
+                            <div class="message-content">
+                                <p>这个前端项目使用了以下技术栈：</p>
+                                <br>
+                                <p><strong>前端技术：</strong></p>
+                                <p>• <code>HTML5</code> - 语义化标记</p>
+                                <p>• <code>CSS3</code> - 现代样式和动画</p>
+                                <p>• <code>Vanilla JavaScript</code> - 原生JS实现</p>
+                                <p>• <code>Font Awesome</code> - 图标库</p>
+                                <br>
+                                <p><strong>后端对接：</strong></p>
+                                <p>• RESTful API</p>
+                                <p>• Server-Sent Events (流式响应)</p>
+                                <p>• JWT 身份验证</p>
+                                <br>
+                                <p>这是一个纯前端实现，无需复杂的构建工具，直接在浏览器中运行！✨</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="input-area">
+                        <div class="input-container">
+                            <textarea 
+                                id="message-input" 
+                                placeholder="输入你的消息..." 
+                                rows="1"
+                                maxlength="10000"
+                            ></textarea>
+                            <button id="send-button" class="send-btn" onclick="sendDemoMessage()">
+                                <i class="fas fa-paper-plane"></i>
+                            </button>
+                        </div>
+                        <div class="input-footer">
+                            <span class="char-count">0/10000</span>
+                            <div class="model-selector">
+                                <select id="model-select">
+                                    <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+                                    <option value="gpt-4">GPT-4</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 演示模式脚本
+        const messageInput = document.getElementById('message-input');
+        const charCount = document.querySelector('.char-count');
+        const messagesContainer = document.getElementById('messages-container');
+
+        // 更新字符计数
+        messageInput.addEventListener('input', function() {
+            const count = this.value.length;
+            charCount.textContent = `${count}/10000`;
+            
+            // 自动调整高度
+            this.style.height = 'auto';
+            this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+        });
+
+        // 发送演示消息
+        function sendDemoMessage() {
+            const content = messageInput.value.trim();
+            if (!content) return;
+
+            // 添加用户消息
+            addMessageToUI({
+                role: 'user',
+                content: content
+            });
+
+            messageInput.value = '';
+            charCount.textContent = '0/10000';
+            messageInput.style.height = 'auto';
+
+            // 模拟AI回复
+            setTimeout(() => {
+                addMessageToUI({
+                    role: 'assistant',
+                    content: `这是一个演示回复。你输入了："${content}"。在实际应用中，这里会显示AI的真实回复。这个界面完全仿照ChatGPT设计，具有现代化的外观和流畅的交互体验。`
+                });
+            }, 1000);
+        }
+
+        // 添加消息到UI
+        function addMessageToUI(message) {
+            const messageEl = document.createElement('div');
+            messageEl.className = `message ${message.role}`;
+            
+            const avatar = document.createElement('div');
+            avatar.className = 'message-avatar';
+            avatar.innerHTML = message.role === 'user' ? 
+                '<i class="fas fa-user"></i>' : 
+                '<i class="fas fa-robot"></i>';
+            
+            const content = document.createElement('div');
+            content.className = 'message-content';
+            content.innerHTML = `<p>${message.content}</p>`;
+            
+            messageEl.appendChild(avatar);
+            messageEl.appendChild(content);
+            
+            messagesContainer.appendChild(messageEl);
+            
+            // 滚动到底部
+            setTimeout(() => {
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            }, 100);
+        }
+
+        // 创建新对话（演示）
+        function createNewConversation() {
+            messagesContainer.innerHTML = '';
+            document.getElementById('conversation-title').textContent = '新对话';
+            
+            // 移除活跃状态
+            document.querySelectorAll('.conversation-item').forEach(item => {
+                item.classList.remove('active');
+            });
+        }
+
+        // Enter 键发送
+        messageInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendDemoMessage();
+            }
+        });
+
+        // 对话项点击
+        document.querySelectorAll('.conversation-item').forEach(item => {
+            item.addEventListener('click', function() {
+                document.querySelectorAll('.conversation-item').forEach(i => i.classList.remove('active'));
+                this.classList.add('active');
+                document.getElementById('conversation-title').textContent = 
+                    this.querySelector('.conversation-title').textContent;
+            });
+        });
+
+        // 演示模型管理功能
+        function showDemoModelManagement() {
+            // 隐藏聊天界面
+            document.getElementById('chat-interface').classList.add('hidden');
+            
+            // 创建或显示模型管理界面
+            let modelManagementEl = document.getElementById('demo-model-management');
+            
+            if (!modelManagementEl) {
+                modelManagementEl = document.createElement('div');
+                modelManagementEl.id = 'demo-model-management';
+                modelManagementEl.className = 'model-management';
+                
+                modelManagementEl.innerHTML = `
+                    <div class="management-header">
+                        <h2>模型管理</h2>
+                        <div class="management-actions">
+                            <button class="btn btn-primary" onclick="alert('这是演示模式，实际部署后可以添加新模型')">
+                                <i class="fas fa-plus"></i>
+                                添加模型
+                            </button>
+                            <button class="btn btn-secondary" onclick="alert('模型列表已刷新（演示）')">
+                                <i class="fas fa-refresh"></i>
+                                刷新
+                            </button>
+                            <button class="btn btn-secondary" onclick="backToChat()">
+                                <i class="fas fa-arrow-left"></i>
+                                返回聊天
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="models-grid">
+                        <div class="model-card">
+                            <div class="model-card-header">
+                                <h3>GPT-4 Turbo</h3>
+                                <div class="model-status active">启用</div>
+                            </div>
+                            <div class="model-card-body">
+                                <p><strong>模型ID:</strong> gpt-4-turbo</p>
+                                <p><strong>提供商:</strong> OpenAI</p>
+                                <p><strong>能力:</strong> chat, vision</p>
+                                <p><strong>描述:</strong> 最新的GPT-4模型，支持图像理解</p>
+                            </div>
+                            <div class="model-card-actions">
+                                <button class="btn btn-secondary" onclick="alert('编辑功能（演示）')">
+                                    <i class="fas fa-edit"></i>
+                                    编辑
+                                </button>
+                                <button class="btn btn-secondary" onclick="showDemoModelDetails('gpt-4-turbo')">
+                                    <i class="fas fa-eye"></i>
+                                    详情
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="model-card">
+                            <div class="model-card-header">
+                                <h3>GPT-3.5 Turbo</h3>
+                                <div class="model-status active">启用</div>
+                            </div>
+                            <div class="model-card-body">
+                                <p><strong>模型ID:</strong> gpt-3.5-turbo</p>
+                                <p><strong>提供商:</strong> OpenAI</p>
+                                <p><strong>能力:</strong> chat</p>
+                                <p><strong>描述:</strong> 快速且经济的聊天模型</p>
+                            </div>
+                            <div class="model-card-actions">
+                                <button class="btn btn-secondary" onclick="alert('编辑功能（演示）')">
+                                    <i class="fas fa-edit"></i>
+                                    编辑
+                                </button>
+                                <button class="btn btn-secondary" onclick="showDemoModelDetails('gpt-3.5-turbo')">
+                                    <i class="fas fa-eye"></i>
+                                    详情
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="model-card">
+                            <div class="model-card-header">
+                                <h3>Claude-3 Sonnet</h3>
+                                <div class="model-status inactive">禁用</div>
+                            </div>
+                            <div class="model-card-body">
+                                <p><strong>模型ID:</strong> claude-3-sonnet</p>
+                                <p><strong>提供商:</strong> Anthropic</p>
+                                <p><strong>能力:</strong> chat, vision</p>
+                                <p><strong>描述:</strong> Anthropic的Claude-3模型</p>
+                            </div>
+                            <div class="model-card-actions">
+                                <button class="btn btn-secondary" onclick="alert('编辑功能（演示）')">
+                                    <i class="fas fa-edit"></i>
+                                    编辑
+                                </button>
+                                <button class="btn btn-secondary" onclick="showDemoModelDetails('claude-3-sonnet')">
+                                    <i class="fas fa-eye"></i>
+                                    详情
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                document.querySelector('.chat-area').appendChild(modelManagementEl);
+            }
+            
+            modelManagementEl.classList.remove('hidden');
+        }
+
+        function backToChat() {
+            document.getElementById('demo-model-management').classList.add('hidden');
+            document.getElementById('chat-interface').classList.remove('hidden');
+        }
+
+        function showDemoModelDetails(modelId) {
+            const modelDetails = {
+                'gpt-4-turbo': {
+                    model_id: 'gpt-4-turbo',
+                    name: 'GPT-4 Turbo',
+                    provider_name: 'OpenAI',
+                    model_type: 'chat',
+                    capabilities: ['chat', 'vision'],
+                    is_active: true,
+                    description: '最新的GPT-4模型，支持图像理解',
+                    created_at: '2024-01-15T10:30:00Z',
+                    updated_at: '2024-01-20T15:45:00Z'
+                },
+                'gpt-3.5-turbo': {
+                    model_id: 'gpt-3.5-turbo',
+                    name: 'GPT-3.5 Turbo',
+                    provider_name: 'OpenAI',
+                    model_type: 'chat',
+                    capabilities: ['chat'],
+                    is_active: true,
+                    description: '快速且经济的聊天模型',
+                    created_at: '2023-11-01T09:00:00Z',
+                    updated_at: '2024-01-10T14:20:00Z'
+                },
+                'claude-3-sonnet': {
+                    model_id: 'claude-3-sonnet',
+                    name: 'Claude-3 Sonnet',
+                    provider_name: 'Anthropic',
+                    model_type: 'chat',
+                    capabilities: ['chat', 'vision'],
+                    is_active: false,
+                    description: 'Anthropic的Claude-3模型',
+                    created_at: '2024-03-01T11:15:00Z',
+                    updated_at: '2024-03-05T16:30:00Z'
+                }
+            };
+
+            const model = modelDetails[modelId];
+            if (!model) return;
+
+            const modal = document.createElement('div');
+            modal.className = 'modal';
+            modal.innerHTML = `
+                <div class="modal-content" style="max-width: 500px;">
+                    <div class="modal-header">
+                        <h2>模型详情</h2>
+                        <button class="close-btn" onclick="this.closest('.modal').remove()">&times;</button>
+                    </div>
+                    
+                    <div class="model-details">
+                        <div class="detail-item">
+                            <strong>模型ID:</strong> ${model.model_id}
+                        </div>
+                        <div class="detail-item">
+                            <strong>名称:</strong> ${model.name}
+                        </div>
+                        <div class="detail-item">
+                            <strong>提供商:</strong> ${model.provider_name}
+                        </div>
+                        <div class="detail-item">
+                            <strong>类型:</strong> ${model.model_type}
+                        </div>
+                        <div class="detail-item">
+                            <strong>能力:</strong> ${model.capabilities.join(', ')}
+                        </div>
+                        <div class="detail-item">
+                            <strong>状态:</strong> 
+                            <span class="model-status ${model.is_active ? 'active' : 'inactive'}">
+                                ${model.is_active ? '启用' : '禁用'}
+                            </span>
+                        </div>
+                        <div class="detail-item">
+                            <strong>描述:</strong> ${model.description}
+                        </div>
+                        <div class="detail-item">
+                            <strong>创建时间:</strong> ${new Date(model.created_at).toLocaleString()}
+                        </div>
+                        <div class="detail-item">
+                            <strong>更新时间:</strong> ${new Date(model.updated_at).toLocaleString()}
+                        </div>
+                    </div>
+                    
+                    <div class="modal-actions">
+                        <button class="btn btn-secondary" onclick="this.closest('.modal').remove()">
+                            关闭
+                        </button>
+                    </div>
+                </div>
+            `;
+            
+            document.body.appendChild(modal);
+        }
+    </script>
+</body>
+</html> 

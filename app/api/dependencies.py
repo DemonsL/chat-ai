@@ -15,7 +15,7 @@ from app.schemas.token import TokenPayload
 from app.services.auth_service import AuthService
 from app.services.conversation_service import ConversationService
 from app.services.file_management_service import FileManagementService
-from app.services.message_orchestrator import MessageOrchestrator
+from app.services.message_service import MessageService
 from app.services.model_service import ModelService
 from app.services.task_monitor_service import TaskMonitorService
 from app.services.user_service import UserService
@@ -117,8 +117,8 @@ async def get_conversation_service(
 
 async def get_message_orchestrator(
     db_session: AsyncSession = Depends(get_db_session),
-) -> MessageOrchestrator:
-    return MessageOrchestrator(db_session)
+) -> MessageService:
+    return MessageService(db_session)
 
 
 async def get_file_service(
