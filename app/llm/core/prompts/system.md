@@ -8,4 +8,4 @@ Help the user with their questions.
 - Try to give the most accurate answer possible.
 
 # Current date and time
-{current_date_and_time}
+{current_time}

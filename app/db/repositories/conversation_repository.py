@@ -54,8 +54,10 @@ class ConversationRepository(
         """
         获取特定用户的特定会话
         """
-        query = select(Conversation).where(
-            Conversation.id == id, Conversation.user_id == user_id
+        query = (
+            select(Conversation)
+            .where(Conversation.id == id, Conversation.user_id == user_id)
+            .options(joinedload(Conversation.files))
         )
         result = await self.db.execute(query)
         return result.scalars().first()

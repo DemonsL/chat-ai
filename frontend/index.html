@@ -101,11 +101,25 @@
 
             <!-- 主聊天区域 -->
             <div class="chat-area">
+                <!-- 顶部模型选择器 -->
+                <div class="chat-header">
+                    <div class="model-selector-header">
+                        <div class="model-dropdown" id="model-dropdown">
+                            <button class="model-dropdown-btn" onclick="toggleModelDropdown()">
+                                <span id="selected-model-name">ChatGPT</span>
+                                <i class="fas fa-chevron-down"></i>
+                            </button>
+                            <div class="model-dropdown-menu" id="model-dropdown-menu">
+                                <!-- 模型选项将动态填充 -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- 欢迎页面 -->
                 <div id="welcome-screen" class="welcome-screen">
                     <div class="welcome-content">
-                        <h1>Chat AI</h1>
-                        <p>你好！我是你的AI助手，有什么可以帮你的吗？</p>
+                        <h1>有什么可以帮忙的？</h1>
                         <div class="suggestion-cards">
                             <div class="suggestion-card" onclick="sendSuggestion('解释量子计算的基本原理')">
                                 <i class="fas fa-atom"></i>
@@ -129,42 +143,112 @@
 
                 <!-- 聊天界面 -->
                 <div id="chat-interface" class="chat-interface hidden">
-                    <div class="chat-header">
-                        <h3 id="conversation-title">新对话</h3>
-                        <div class="chat-actions">
-                            <button class="action-btn" onclick="clearConversation()" title="清空对话">
-                                <i class="fas fa-trash"></i>
-                            </button>
-                            <button class="action-btn" onclick="shareConversation()" title="分享对话">
-                                <i class="fas fa-share"></i>
-                            </button>
-                        </div>
-                    </div>
-
                     <div class="messages-container" id="messages-container">
                         <!-- 消息将动态填充 -->
                     </div>
+                </div>
 
-                    <div class="input-area">
-                        <div class="input-container">
+                <!-- 输入区域 -->
+                <div class="input-area">
+                    <!-- 模式和工具选择器 -->
+                    <div class="mode-tools-bar" id="mode-tools-bar">
+                        <div class="mode-selector">
+                            <button class="mode-btn active" data-mode="chat" onclick="selectMode('chat')" title="普通聊天">
+                                <i class="fas fa-comments"></i>
+                                <span>聊天</span>
+                            </button>
+                            <button class="mode-btn" data-mode="rag" onclick="selectMode('rag')" title="文档问答">
+                                <i class="fas fa-file-alt"></i>
+                                <span>文档</span>
+                            </button>
+                            <button class="mode-btn" data-mode="search" onclick="selectMode('search')" title="联网搜索">
+                                <i class="fas fa-search"></i>
+                                <span>搜索</span>
+                            </button>
+                            <button class="mode-btn" data-mode="deepresearch" onclick="selectMode('deepresearch')" title="深度研究">
+                                <i class="fas fa-microscope"></i>
+                                <span>研究</span>
+                            </button>
+                        </div>
+
+                        <!-- 工具选择器 -->
+                        <div class="tools-selector" id="tools-selector">
+                            <button class="tool-btn" onclick="toggleToolsMenu()" title="工具">
+                                <i class="fas fa-tools"></i>
+                                <span>工具</span>
+                            </button>
+                            <div class="tools-menu" id="tools-menu">
+                                <div class="tool-option">
+                                    <label>
+                                        <input type="checkbox" name="tool" value="search" checked>
+                                        <i class="fas fa-search"></i>
+                                        搜索网页
+                                    </label>
+                                </div>
+                                <div class="tool-option">
+                                    <label>
+                                        <input type="checkbox" name="tool" value="analysis">
+                                        <i class="fas fa-chart-line"></i>
+                                        数据分析
+                                    </label>
+                                </div>
+                                <div class="tool-option">
+                                    <label>
+                                        <input type="checkbox" name="tool" value="research">
+                                        <i class="fas fa-microscope"></i>
+                                        深入思考
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 文件上传区域 -->
+                        <div class="file-upload-area" id="file-upload-area" style="display: none;">
+                            <input type="file" id="file-input" multiple accept=".txt,.pdf,.doc,.docx,.md" style="display: none;">
+                            <button class="file-upload-btn" onclick="document.getElementById('file-input').click()">
+                                <i class="fas fa-paperclip"></i>
+                                <span>上传文件</span>
+                            </button>
+                            <div class="uploaded-files" id="uploaded-files">
+                                <!-- 已上传文件列表 -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 输入框区域 -->
+                    <div class="input-container">
+                        <div class="input-wrapper">
+                            <button class="attach-btn" onclick="toggleAttachMenu()" title="附件">
+                                <i class="fas fa-plus"></i>
+                            </button>
+                            <div class="attach-menu" id="attach-menu">
+                                <button class="attach-option" onclick="uploadFile()">
+                                    <i class="fas fa-file"></i>
+                                    <span>上传文件</span>
+                                </button>
+                                <button class="attach-option" onclick="createImage()">
+                                    <i class="fas fa-image"></i>
+                                    <span>创建图片</span>
+                                </button>
+                            </div>
+                            
                             <textarea 
                                 id="message-input" 
-                                placeholder="输入你的消息..." 
+                                placeholder="询问任何问题..." 
                                 rows="1"
                                 maxlength="10000"
                             ></textarea>
-                            <button id="send-button" class="send-btn" onclick="sendMessage()">
-                                <i class="fas fa-paper-plane"></i>
+                            
+                            <button id="send-button" class="send-btn" onclick="sendMessage()" disabled>
+                                <i class="fas fa-arrow-up"></i>
                             </button>
                         </div>
+                        
                         <div class="input-footer">
-                            <span class="char-count">0/10000</span>
-                            <div class="model-selector">
-                                <label for="model-select">模型:</label>
-                                <select id="model-select">
-                                    <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
-                                    <option value="gpt-4">GPT-4</option>
-                                </select>
+                            <div class="input-info">
+                                <span class="current-mode" id="current-mode-text">聊天模式</span>
+                                <span class="separator">•</span>
+                                <span class="char-count" id="char-count">0/10000</span>
                             </div>
                         </div>
                     </div>

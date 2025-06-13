@@ -26,6 +26,7 @@ pydantic-settings = "^2.2.1" # For loading config from .env
 # --- Database (SQL) ---
 sqlalchemy = {extras = ["asyncio"], version = "^2.0.30"} # SQLAlchemy v2 with asyncio support
 asyncpg = "^0.29.0" # Async driver for PostgreSQL
+psycopg[binary] = "^3.1.0",
 alembic = "^1.13.1" # For database migrations
 
 # --- Database (Vector) ---
@@ -44,6 +45,7 @@ langchain = "^0.2.1" # Core LangChain library
 langchain-openai = "^0.1.7" # OpenAI specific integrations
 langchain-anthropic = "^0.1.11" # Anthropic specific integrations
 langchain-community = "^0.2.1" # Community integrations (often needed for vector stores like Chroma)
+dashscope = "^1.23.4"
 
 # --- Authentication ---
 python-jose = {extras = ["cryptography"], version = "^3.3.0"} # For JWT handling
@@ -55,9 +57,13 @@ python-docx = "^1.1.2" # For DOCX text extraction
 pytesseract = "^0.3.10" # OCR wrapper (Requires Tesseract OCR engine installed on the system)
 pillow = "^10.3.0" # Image handling library (often needed with OCR)
 
+# --- Logging ---
+loguru = "^0.7.2" # Advanced logging library
+
 # --- Background Tasks (Optional - Choose one if needed beyond FastAPI BackgroundTasks) ---
-# celery = "^5.4.0" # Uncomment if using Celery
-# flower = "^2.0.1" # Optional Celery monitoring tool (add to dev group if preferred)
+celery = "^5.4.0" # Celery for background tasks
+flower = "^2.0.1" # Celery monitoring tool
+kombu = "^5.3.0" # Celery message transport
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.2.1" # Testing framework

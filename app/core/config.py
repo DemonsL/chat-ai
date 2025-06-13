@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     REDIS_DB: int = 0
 
     # Vector 数据库配置
-    VECTOR_DB_TYPE: str = "chroma"  # 或 "pinecone"
+    VECTOR_DB_TYPE: str = "chroma"
     CHROMA_DB_DIR: str = "./chroma_db"
     PINECONE_API_KEY: Optional[str] = None
     PINECONE_ENVIRONMENT: Optional[str] = None
@@ -56,19 +56,35 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: Optional[str] = None
     DEEPSEEK_API_KEY: Optional[str] = None
 
+    # Qwen/DashScope 配置
+    QWEN_API_KEY: Optional[str] = None
+    DASHSCOPE_API_KEY: Optional[str] = None  # 阿里云灵积API密钥（与QWEN_API_KEY相同）
+    QWEN_BASE_URL: str = "https://dashscope.aliyuncs.com/api/v1"
+
     # 文件上传配置
     UPLOAD_DIR: str = "./uploads"
     MAX_UPLOAD_SIZE: int = 20 * 1024 * 1024  # 20MB
 
     # 嵌入模型配置
+    EMBEDDING_PROVIDER: str = "openai"  # 支持 'openai', 'qwen'
     EMBEDDING_MODEL: str = "text-embedding-3-small"  # OpenAI 嵌入模型
+    QWEN_EMBEDDING_MODEL: str = "text-embedding-v1"  # Qwen 嵌入模型
 
     # Sentry设置
     SENTRY_DSN: Optional[str] = None
 
     # Celery设置
     CELERY_BROKER_URL: str = "amqp://guest:guest@localhost:5672//"
-    CELERY_RESULT_BACKEND: str = "redis://localhost:6379/0"
+    CELERY_RESULT_BACKEND: str = "redis://localhost:6380/0"
+
+    USE_POSTGRES_CHECKPOINTER: bool = True
+    POSTGRES_DATABASE_URL: Optional[str] = None
+    # Postgres Configuration
+    POSTGRES_URL: str = ""
+    POSTGRES_POOL_SIZE: int = 20
+    POSTGRES_MAX_OVERFLOW: int = 10
+    CHECKPOINT_TABLES: List[str] = ["checkpoint_blobs", "checkpoint_writes", "checkpoints"]
+
 
     class Config:
         env_file = ".env"

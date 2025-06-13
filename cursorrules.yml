@@ -134,7 +134,7 @@ rules:
   - pattern: "/app/services/conversation_service.py"
     label: service-conversation
     priority: high
-  - pattern: "/app/services/file_management_service.py"
+  - pattern: "/app/services/file_service.py"
     label: service-file
     priority: high
 
@@ -222,7 +222,7 @@ prompt:
     - User authentication (JWT) and management.
     - Conversation management with different modes (chat, RAG, agent) and per-conversation model selection.
     - Support for multiple LLMs (GPT, Claude, DeepSeek) via LangChain, managed by `app/llm/core/manager.py`.
-    - File uploads (PDF, DOCX, TXT, Images w/ OCR) stored in object storage, managed by `app/services/file_management_service.py`.
+    - File uploads (PDF, DOCX, TXT, Images w/ OCR) stored in object storage, managed by `app/services/file_service.py`.
     - Asynchronous file processing (`app/tasks/file_processor.py`) and indexing (`app/tasks/vector_indexer.py`) into a Vector DB (Pinecone or Chroma) for RAG.
     - Retrieval-Augmented Generation (RAG) implemented in `app/llm/rag/`.
     - Agent-based DeepResearch using LangChain Agents and Tools (Web Search, RAG Search) implemented in `app/llm/agent/`.
@@ -343,7 +343,7 @@ architecture:
 │   │   ├── auth_service.py # Handles authentication logic (login, registration)
 │   │   ├── user_service.py # Handles user profile logic
 │   │   ├── conversation_service.py # Manages conversation metadata (settings, model choice)
-│   │   ├── file_management_service.py # Handles file upload logic, triggers processing tasks, checks status
+│   │   ├── file_service.py # Handles file upload logic, triggers processing tasks, checks status
 │   │   └── message_orchestrator.py # KEY: Receives new message requests, determines mode (chat/rag/agent) based on conversation settings, and calls the appropriate service in `llm/`
 │   ├── tasks/              # Background tasks (Celery, RQ, or FastAPI BackgroundTasks logic)
 │   │   ├── __init__.py

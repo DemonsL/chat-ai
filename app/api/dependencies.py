@@ -14,7 +14,7 @@ from app.db.session import get_db
 from app.schemas.token import TokenPayload
 from app.services.auth_service import AuthService
 from app.services.conversation_service import ConversationService
-from app.services.file_management_service import FileManagementService
+from app.services.file_service import FileManagementService
 from app.services.message_service import MessageService
 from app.services.model_service import ModelService
 from app.services.task_monitor_service import TaskMonitorService

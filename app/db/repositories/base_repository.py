@@ -80,6 +80,6 @@ class BaseRepository(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         """
         obj = await self.get_by_id(id)
         if obj:
-            await self.db.delete(obj)
+            self.db.delete(obj)
             await self.db.commit()
         return obj

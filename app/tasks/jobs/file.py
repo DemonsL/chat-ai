@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime
 from typing import Dict, List, Optional
 from uuid import UUID
@@ -16,48 +17,35 @@ from app.tasks.jobs.email import send_email_task
     max_retries=3,
     retry_backoff=True,
 )
-async def process_file_task(self, file_id: str):
+async def process_file_task(self, file_id: str, user_id: str):
     """
     处理文件任务
 
     参数:
         file_id: 文件ID字符串
+        user_id: 用户ID字符串
 
     返回:
         处理结果信息
     """
     from app.db.repositories.user_file_repository import UserFileRepository
-    from app.llm.rag.file_processor import FileProcessor
+    from app.services.file_service import FileManagementService
 
     async for session in get_async_db_session():
-        file_repo = UserFileRepository(session)
-        file_processor = FileProcessor(file_repo)
+        file_service = FileManagementService(session)
 
         file_id_uuid = UUID(file_id)
+        user_id_uuid = UUID(user_id)
 
         try:
-            # 获取文件信息
-            file_record = await file_repo.get_by_id(file_id_uuid)
-            if not file_record:
-                raise FileProcessingException(detail="文件不存在")
-
-            # 更新文件状态为处理中
-            await file_repo.update_status(
-                file_id=file_id_uuid, status=FileStatus.PROCESSING
-            )
-
-            # 使用文件处理器进行处理
-            result = await file_processor.process_file(file_id_uuid)
+            # 使用业务层文件服务进行处理
+            result = await file_service.process_file(file_id_uuid, user_id_uuid)
             logger.info(f"文件处理成功: {result}")
             return result
 
         except Exception as e:
             # 记录错误
             logger.error(f"文件处理失败: {str(e)}")
-            # 更新文件状态
-            await file_repo.update_status(
-                file_id=file_id_uuid, status=FileStatus.ERROR, error_message=str(e)
-            )
             raise e
 
 
@@ -98,14 +86,14 @@ async def analyze_file_task(self, file_id: str, analysis_type: str = "basic"):
             result = {"analysis_type": analysis_type, "content_type": "text"}
 
         # 更新文件元数据
-        metadata = file_record.metadata or {}
-        metadata["analysis"] = {
+        file_metadata = file_record.file_metadata or {}
+        file_metadata["analysis"] = {
             "type": analysis_type,
             "timestamp": datetime.now().isoformat(),
             "result": result,
         }
 
-        await file_repo.update(db_obj=file_record, obj_in={"metadata": metadata})
+        await file_repo.update(db_obj=file_record, obj_in={"file_metadata": file_metadata})
 
         return result
 
@@ -214,6 +202,7 @@ async def bulk_upload_task(
     import shutil
     from pathlib import Path
 
+    from app.core.config import settings
     from app.db.repositories.user_file_repository import UserFileRepository
     from app.schemas.file import FileStatus, FileType
 
@@ -257,7 +246,7 @@ async def bulk_upload_task(
                     continue
 
                 # 生成唯一文件名
-                unique_filename = f"{user_id}_{UUID().hex}{file_ext}"
+                unique_filename = f"{user_id}_{uuid.uuid4().hex}{file_ext}"
                 storage_path = os.path.join(settings.UPLOAD_DIR, unique_filename)
 
                 # 复制文件到存储目录
@@ -275,13 +264,13 @@ async def bulk_upload_task(
                     "file_size": file_size,
                     "storage_path": storage_path,
                     "status": FileStatus.PENDING,
-                    "metadata": {"source": "bulk_upload"},
+                    "file_metadata": {"source": "bulk_upload"},
                 }
 
                 file_record = await file_repo.create(obj_in=file_data)
 
                 # 启动处理任务
-                process_file_task.delay(str(file_record.id))
+                process_file_task.delay(str(file_record.id), str(user_id_uuid))
 
                 # 启动分析任务（如果需要）
                 if analyze:

@@ -8,7 +8,7 @@ from app.api.dependencies import get_current_active_user, get_file_service
 from app.core.exceptions import NotFoundException, PermissionDeniedException
 from app.db.models.user import User
 from app.schemas.file import UserFileResponse
-from app.services.file_management_service import FileManagementService
+from app.services.file_service import FileManagementService
 
 router = APIRouter()
 
@@ -19,6 +19,7 @@ router = APIRouter()
 async def upload_file(
     file: UploadFile = File(...),
     description: str = None,
+    sync_process: bool = True,  # 默认同步处理
     current_user: User = Depends(get_current_active_user),
     file_service: FileManagementService = Depends(get_file_service),
 ):
@@ -27,12 +28,18 @@ async def upload_file(
 
     接收文件上传，验证文件类型和大小，并将其保存到系统中。
     支持文本文件(txt, pdf, docx等)和图片文件(png, jpg, jpeg等)。
+    
+    参数:
+        file: 上传的文件
+        description: 文件描述
+        sync_process: 是否同步处理文件（默认True，避免异步任务问题）
     """
     try:
         file_record = await file_service.upload_file(
             file=file,
             user_id=current_user.id,
             description=description,
+            sync_process=sync_process,
         )
         return file_record
     except ValueError as e:

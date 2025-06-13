@@ -40,7 +40,7 @@ class UserFileBase(BaseSchema):
     file_size: Optional[int] = None
     status: Optional[FileStatus] = FileStatus.PENDING
     error_message: Optional[str] = None
-    metadata: Optional[Dict] = None
+    file_metadata: Optional[Dict] = None
 
 
 class UserFileCreate(UserFileBase):
@@ -63,7 +63,7 @@ class UserFileUpdate(UserFileBase):
 
     status: Optional[FileStatus] = None
     error_message: Optional[str] = None
-    metadata: Optional[Dict] = None
+    file_metadata: Optional[Dict] = None
 
 
 class UserFileInDBBase(UserFileBase, BaseModelSchema):

@@ -1,0 +1,35 @@
+# LangGraph 和相关依赖
+langgraph>=0.1.0
+langchain>=0.1.0
+langchain-core>=0.1.0
+langchain-community>=0.1.0
+
+# PostgreSQL 支持 - Windows 兼容版本
+# 选择其中一个安装即可：
+
+# 选项1：推荐 - 包含预编译二进制文件
+psycopg2-binary>=2.9.0
+
+# 选项2：或者使用新版本的 psycopg (需要额外配置)
+# psycopg[binary]>=3.1.0
+
+# 选项3：纯Python版本（较慢但兼容性好）
+# psycopg[pool]>=3.1.0
+
+# 其他必要依赖
+typing-extensions>=4.5.0
+pydantic>=2.0.0
+
+# 可选的LLM提供商
+langchain-openai>=0.1.0
+langchain-anthropic>=0.1.0
+langchain-google-genai>=0.1.0
+
+# 开发和测试工具
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+
+# Windows 特定依赖（可选）
+# 如果在Windows上遇到编译问题，可以安装：
+# wheel>=0.37.0
+# setuptools>=65.0.0 

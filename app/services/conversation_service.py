@@ -41,9 +41,17 @@ class ConversationService:
             if len(files) != len(conv_create.file_ids):
                 raise NotFoundException(detail="一个或多个指定的文件不存在")
 
-        # 创建会话
+        # 创建会话数据
         conv_data = conv_create.model_dump(exclude={"file_ids"})
         conv_data["user_id"] = user_id
+        
+        # 如果没有明确指定模式，根据是否有文件自动设置模式
+        if not conv_create.mode or conv_create.mode == "chat":
+            if conv_create.file_ids and len(conv_create.file_ids) > 0:
+                conv_data["mode"] = "rag"  # 有文件时自动设为RAG模式
+            else:
+                conv_data["mode"] = "chat"  # 默认聊天模式
+        
         conversation = await self.conversation_repo.create(obj_in=conv_data)
 
         # 如果指定了文件，更新会话与文件的关联

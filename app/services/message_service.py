@@ -1,6 +1,7 @@
 import json
 from typing import AsyncGenerator, Dict, List, Optional
 from uuid import UUID
+import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,9 +13,10 @@ from app.db.repositories.message_repository import MessageRepository
 from app.db.repositories.model_config_repository import ModelConfigRepository
 from app.db.repositories.user_file_repository import UserFileRepository
 from app.schemas.message import MessageRole
-from app.llm.core.manage import LLMManager
+from app.llm.manage import LLMManager
 from app.services.retrieval_service import RetrievalService
 
+logger = logging.getLogger(__name__)
 
 class MessageService:
     """
@@ -29,13 +31,13 @@ class MessageService:
         self.model_repo = ModelConfigRepository(db_session)
         self.file_repo = UserFileRepository(db_session)
 
-        # 创建LLM编排服务（无数据库依赖）
-        self.llm_orchestrator = LLMManager()
-        
         # 创建检索服务
         self.retrieval_service = RetrievalService(
             file_repo=self.file_repo
         )
+
+        # 创建LLM编排服务，传入检索服务
+        self.llm_orchestrator = LLMManager(retrieval_service=self.retrieval_service)
 
     async def handle_message(
         self,
@@ -77,17 +79,6 @@ class MessageService:
             if not model_config or not model_config.is_active:
                 raise NotFoundException(detail="所选模型不可用")
 
-            # 获取历史消息
-            history = await self.message_repo.get_conversation_history(conversation_id)
-            
-            # 转换消息格式
-            messages = []
-            for msg in history:
-                messages.append({"role": msg.role, "content": msg.content})
-            
-            # 添加当前消息
-            messages.append({"role": "user", "content": content})
-            
             # 准备模型配置，确保必要的参数存在
             extra_params = model_config.config or {}
             
@@ -112,52 +103,73 @@ class MessageService:
                 "extra_params": extra_params
             }
             
-            # 根据会话模式选择处理方式
-            if conversation.mode == "chat":
-                # 使用基础聊天
-                service_stream = self.llm_orchestrator.process_chat(
-                    messages=messages,
-                    model_config=model_config_dict,
-                    system_prompt=conversation.system_prompt,
-                )
-            elif conversation.mode == "rag":
-                # 使用RAG模式
-                # 获取会话关联的文件
+            # 动态选择处理模式
+            processing_mode = "chat"  # 默认模式
+            processing_metadata = {}
+            
+            # 1. 检查元数据中是否明确指定了模式
+            if metadata and metadata.get("mode"):
+                processing_mode = metadata["mode"]
+                logger.info(f"元数据指定处理模式: {processing_mode}")
+            # 2. 检查是否有可用的文件，如果有则使用RAG模式
+            elif (metadata and (metadata.get("files") or metadata.get("file_ids"))) or \
+                 (hasattr(conversation, 'files') and conversation.files and len(conversation.files) > 0):
+                
+                # 获取文件ID列表
                 file_ids = []
-                if conversation.files:
-                    file_ids = [file.id for file in conversation.files]
+                if metadata and metadata.get("file_ids"):
+                    file_ids = [UUID(fid) for fid in metadata["file_ids"]]
+                elif hasattr(conversation, 'files') and conversation.files:
+                    indexed_files = [
+                        file for file in conversation.files 
+                        if hasattr(file, 'status') and file.status == 'indexed'
+                    ]
+                    file_ids = [file.id for file in indexed_files]
                 
-                # 检索相关文档
-                retrieved_docs = await self.retrieval_service.retrieve_documents(
-                    query=content,
-                    file_ids=file_ids,
-                    top_k=5,
-                    similarity_threshold=0.8
-                )
-                
-                service_stream = self.llm_orchestrator.process_rag(
-                    messages=messages,
-                    model_config=model_config_dict,
-                    retrieved_documents=retrieved_docs,
-                    system_prompt=conversation.system_prompt,
-                )
-            elif conversation.mode == "deepresearch":
-                # 使用Agent模式
-                available_tools = ["search", "analysis", "research"]  # 这里可以根据配置动态获取
-                
-                service_stream = self.llm_orchestrator.process_agent(
-                    messages=messages,
-                    model_config=model_config_dict,
-                    available_tools=available_tools,
-                    system_prompt=conversation.system_prompt,
-                )
-            else:
-                # 默认使用聊天模式
-                service_stream = self.llm_orchestrator.process_chat(
-                    messages=messages,
-                    model_config=model_config_dict,
-                    system_prompt=conversation.system_prompt,
-                )
+                if file_ids:
+                    # 有可用文件，使用RAG模式，让graph来决定是否检索
+                    processing_mode = "rag"
+                    logger.info(f"检测到 {len(file_ids)} 个可用文件，使用RAG模式")
+                    
+                    # 准备文件上下文信息，传递给graph
+                    processing_metadata = {
+                        "processing_mode": processing_mode,
+                        "available_file_ids": [str(fid) for fid in file_ids],
+                        "file_count": len(file_ids),
+                        "user_id": str(user_id)
+                    }
+                else:
+                    logger.info("没有可用的已索引文件，使用聊天模式")
+                    processing_mode = "chat"
+            # 3. 检查是否需要联网搜索（从元数据）
+            elif metadata and (metadata.get("tools") and any(tool in ["search", "web_search"] for tool in metadata.get("tools", []))):
+                processing_mode = "agent"
+            # 4. 如果会话有固定模式且不是默认聊天模式，使用会话模式
+            elif conversation.mode and conversation.mode != "chat":
+                processing_mode = conversation.mode
+            
+            # 准备可用工具（如果是Agent模式）
+            available_tools = []
+            if processing_mode == "agent":
+                available_tools = ["search", "analysis", "research"]  # 默认工具
+                # 如果元数据中指定了具体工具，使用指定的工具
+                if metadata and metadata.get("tools"):
+                    available_tools = metadata["tools"]
+            
+            # 准备当前消息（不包含历史消息，由checkpointer处理）
+            current_messages = [{"role": "user", "content": content}]
+            
+            # 使用 LangGraph 的新架构处理对话，checkpointer会自动管理历史消息
+            service_stream = self.llm_orchestrator.process_conversation(
+                messages=current_messages,  # 只传入当前消息，历史由checkpointer管理
+                model_config=model_config_dict,
+                mode=processing_mode,
+                system_prompt=conversation.system_prompt,
+                retrieved_documents=None,
+                available_tools=available_tools if processing_mode == "agent" else None,
+                metadata=processing_metadata,
+                conversation_id=conversation_id,  # 传递对话ID用于checkpointer
+            )
 
             # 用于收集完整的助手回复
             full_response = ""
@@ -176,16 +188,46 @@ class MessageService:
                         full_response += chunk_data.get("content", "")
 
                     # 保存来源引用和其他元数据
-                    if "sources" in chunk_data and chunk_data.get("done", False):
-                        full_metadata["sources"] = chunk_data["sources"]
+                    if chunk_data.get("done", False):
+                        # 保存来源信息
+                        if "sources" in chunk_data:
+                            full_metadata["sources"] = chunk_data["sources"]
+                        
+                        # 保存处理策略相关的元数据
+                        if "processing_strategy" in chunk_data:
+                            full_metadata["processing_strategy"] = chunk_data["processing_strategy"]
+                        
+                        # 保存其他graph节点生成的元数据
+                        for key in ["processing_type", "question_type", "analysis_completed"]:
+                            if key in chunk_data:
+                                full_metadata[key] = chunk_data[key]
 
             # 存储完整的助手回复
             if full_response:
+                # 在助手回复的元数据中记录使用的处理模式
+                assistant_metadata = full_metadata or {}
+                assistant_metadata["processing_mode"] = processing_mode
+                
+                # 如果有处理元数据（来自检索），添加到助手元数据中
+                if processing_metadata:
+                    # 合并处理元数据，但避免覆盖已有的重要信息
+                    for key, value in processing_metadata.items():
+                        if key not in assistant_metadata:
+                            assistant_metadata[key] = value
+                
+                # 添加基础统计信息
+                assistant_metadata["processing_stats"] = {
+                    "mode": processing_mode,
+                    "document_count": 0,
+                    "response_length": len(full_response),
+                    "has_sources": bool(full_metadata.get("sources"))
+                }
+                
                 await self._store_message(
                     conversation_id=conversation_id,
                     role=MessageRole.ASSISTANT,
                     content=full_response,
-                    metadata=full_metadata or metadata,
+                    metadata=assistant_metadata,
                 )
 
         except Exception as e:

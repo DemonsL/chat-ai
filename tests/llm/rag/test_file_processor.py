@@ -1,217 +1,351 @@
 """
-测试文件处理器
+测试LLM文件处理器 - 使用 LangChain 标准加载器
 """
 
 import os
-import uuid
-from pathlib import Path
-from typing import Tuple
+from typing import List
 from unittest.mock import AsyncMock, MagicMock, mock_open, patch
 
-import docx
-import pypdf
 import pytest
-from langchain_community.vectorstores import Chroma
+from langchain.docstore.document import Document
 
 from app.core.exceptions import (FileProcessingException,
                                  InvalidFileTypeException)
-from app.db.models.user_file import UserFile
-from app.db.repositories.user_file_repository import UserFileRepository
-from app.llm.rag.file_processor import FileProcessor
-from app.schemas.file import FileStatus
+from app.llm.rag.file_processor import LLMFileProcessor
 
 
-class TestFileProcessor:
-    """测试文件处理器"""
+class TestLLMFileProcessor:
+    """测试LLM文件处理器"""
 
     def setup_method(self):
         """测试前准备"""
-        # 创建模拟的仓库对象
-        self.file_repo = MagicMock(spec=UserFileRepository)
-
         # 创建文件处理器实例
-        self.file_processor = FileProcessor(file_repo=self.file_repo)
-
-        # 创建测试数据
-        self.file_id = uuid.uuid4()
-        self.user_id = uuid.uuid4()
-
-        # 设置模拟文件
-        self.file = MagicMock(spec=UserFile)
-        self.file.id = self.file_id
-        self.file.user_id = self.user_id
-        self.file.storage_path = "/tmp/test.pdf"
-        self.file.file_type = "pdf"
-        self.file.original_filename = "test.pdf"
-        self.file.status = "pending"
+        self.file_processor = LLMFileProcessor()
 
     @pytest.mark.asyncio
-    async def test_process_pdf_file(self):
-        """测试处理PDF文件"""
-        # 设置获取文件的模拟
-        self.file_repo.get_by_id.return_value = self.file
-        self.file.file_type = "pdf"
+    async def test_process_pdf_file_content(self):
+        """测试处理PDF文件内容 - 使用LangChain标准加载器"""
+        file_path = "/tmp/test.pdf"
+        file_type = "pdf"
+
+        # 创建模拟的文档
+        mock_documents = [
+            Document(
+                page_content="第一页内容",
+                metadata={"page": 1, "source": file_path}
+            ),
+            Document(
+                page_content="第二页内容",
+                metadata={"page": 2, "source": file_path}
+            )
+        ]
 
         # 模拟文件存在
         with patch("os.path.exists", return_value=True):
-            # 模拟PDF内容提取
+            # 模拟LangChain文档加载
             with patch.object(
                 self.file_processor,
-                "_extract_pdf",
-                return_value=("这是PDF文件内容", {"page_count": 1}),
+                "_load_documents_with_langchain",
+                return_value=mock_documents
             ):
-                # 模拟文本分割
+                # 模拟LLM检索服务的文本分割
                 with patch.object(
-                    self.file_processor,
-                    "_split_text",
-                    return_value=[MagicMock(), MagicMock()],
+                    self.file_processor.llm_retrieval,
+                    "split_text_into_chunks",
+                    return_value=["第一页内容", "第二页内容"],
                 ):
-                    # 模拟向量存储
-                    with patch(
-                        "app.llm.rag.file_processor.Chroma.from_documents",
-                        return_value=MagicMock(),
-                    ):
-                        # 模拟更新文件状态
-                        self.file_repo.update_status.return_value = self.file
+                    # 执行测试
+                    chunks, metadata = await self.file_processor.process_file_content(
+                        file_path, file_type
+                    )
 
-                        # 执行测试
-                        result = await self.file_processor.process_file(self.file_id)
-
-                        # 验证结果
-                        assert result["status"] == "indexed"
-                        assert "metadata" in result
-
-                        # 验证调用
-                        self.file_repo.get_by_id.assert_called_once_with(self.file_id)
-                        self.file_repo.update_status.assert_called()
+                    # 验证结果
+                    assert len(chunks) == 2
+                    assert chunks[0] == "第一页内容"
+                    assert chunks[1] == "第二页内容"
+                    assert metadata["source_type"] == "pdf"
+                    assert metadata["chunk_count"] == 2
+                    assert metadata["document_count"] == 2
+                    assert metadata["character_count"] == len("第一页内容\n\n第二页内容")
 
     @pytest.mark.asyncio
-    async def test_process_docx_file(self):
-        """测试处理DOCX文件"""
-        # 设置获取文件的模拟
-        self.file_repo.get_by_id.return_value = self.file
-        self.file.file_type = "docx"
-        self.file.storage_path = "/tmp/test.docx"
+    async def test_process_docx_file_content(self):
+        """测试处理DOCX文件内容 - 使用LangChain标准加载器"""
+        file_path = "/tmp/test.docx"
+        file_type = "docx"
+
+        # 创建模拟的文档
+        mock_documents = [
+            Document(
+                page_content="这是DOCX文件内容",
+                metadata={"source": file_path}
+            )
+        ]
 
         # 模拟文件存在
         with patch("os.path.exists", return_value=True):
-            # 模拟DOCX内容提取
+            # 模拟LangChain文档加载
             with patch.object(
                 self.file_processor,
-                "_extract_docx",
-                return_value=("这是DOCX文件内容", {"page_count": 1}),
+                "_load_documents_with_langchain",
+                return_value=mock_documents
             ):
-                # 模拟文本分割
+                # 模拟LLM检索服务的文本分割
                 with patch.object(
-                    self.file_processor,
-                    "_split_text",
-                    return_value=[MagicMock(), MagicMock()],
+                    self.file_processor.llm_retrieval,
+                    "split_text_into_chunks",
+                    return_value=["这是DOCX文件内容"],
                 ):
-                    # 模拟向量存储
-                    with patch(
-                        "app.llm.rag.file_processor.Chroma.from_documents",
-                        return_value=MagicMock(),
-                    ):
-                        # 模拟更新文件状态
-                        self.file_repo.update_status.return_value = self.file
+                    # 执行测试
+                    chunks, metadata = await self.file_processor.process_file_content(
+                        file_path, file_type
+                    )
 
-                        # 执行测试
-                        result = await self.file_processor.process_file(self.file_id)
+                    # 验证结果
+                    assert len(chunks) == 1
+                    assert chunks[0] == "这是DOCX文件内容"
+                    assert metadata["source_type"] == "docx"
+                    assert metadata["chunk_count"] == 1
+                    assert metadata["document_count"] == 1
 
-                        # 验证结果
-                        assert result["status"] == "indexed"
-                        assert "metadata" in result
+    @pytest.mark.asyncio
+    async def test_load_documents_with_langchain_pdf(self):
+        """测试使用LangChain加载PDF文档"""
+        file_path = "/tmp/test.pdf"
+        file_type = "pdf"
+
+        # 创建模拟的PDF加载器
+        mock_loader = MagicMock()
+        mock_documents = [
+            Document(page_content="PDF内容", metadata={"page": 1})
+        ]
+        mock_loader.load.return_value = mock_documents
+
+        # 模拟文件存在
+        with patch("os.path.exists", return_value=True):
+            # 模拟PyPDFLoader
+            with patch("app.llm.rag.file_processor.PyPDFLoader", return_value=mock_loader):
+                # 执行测试
+                documents = await self.file_processor._load_documents_with_langchain(
+                    file_path, file_type
+                )
+
+                # 验证结果
+                assert len(documents) == 1
+                assert documents[0].page_content == "PDF内容"
+                assert documents[0].metadata["source_file"] == file_path
+                assert documents[0].metadata["file_type"] == "pdf"
+                assert documents[0].metadata["loader_type"] == "PyPDFLoader"
+
+    @pytest.mark.asyncio
+    async def test_load_documents_with_langchain_txt(self):
+        """测试使用LangChain加载TXT文档"""
+        file_path = "/tmp/test.txt"
+        file_type = "txt"
+
+        # 创建模拟的文本加载器
+        mock_loader = MagicMock()
+        mock_documents = [
+            Document(page_content="文本内容", metadata={"source": file_path})
+        ]
+        mock_loader.load.return_value = mock_documents
+
+        # 模拟文件存在
+        with patch("os.path.exists", return_value=True):
+            # 模拟TextLoader
+            with patch("app.llm.rag.file_processor.TextLoader", return_value=mock_loader):
+                # 执行测试
+                documents = await self.file_processor._load_documents_with_langchain(
+                    file_path, file_type
+                )
+
+                # 验证结果
+                assert len(documents) == 1
+                assert documents[0].page_content == "文本内容"
+                assert documents[0].metadata["source_file"] == file_path
+                assert documents[0].metadata["file_type"] == "txt"
+                assert documents[0].metadata["loader_type"] == "TextLoader"
 
     @pytest.mark.asyncio
     async def test_process_file_not_found(self):
         """测试处理不存在的文件"""
-        # 设置获取文件的模拟
-        self.file_repo.get_by_id.return_value = self.file
+        file_path = "/tmp/nonexistent.pdf"
+        file_type = "pdf"
 
         # 模拟文件不存在
         with patch("os.path.exists", return_value=False):
-            # 模拟更新文件状态
-            self.file_repo.update_status.return_value = self.file
+            # 执行测试并期望异常
+            with pytest.raises(FileProcessingException):
+                await self.file_processor.process_file_content(file_path, file_type)
 
+    @pytest.mark.asyncio
+    async def test_load_documents_unsupported_type(self):
+        """测试加载不支持的文件类型"""
+        file_path = "/tmp/test.xyz"
+        file_type = "xyz"
+
+        # 模拟文件存在
+        with patch("os.path.exists", return_value=True):
+            # 执行测试并期望异常
+            with pytest.raises(InvalidFileTypeException):
+                await self.file_processor._load_documents_with_langchain(file_path, file_type)
+
+    def test_collect_metadata_pdf(self):
+        """测试收集PDF元数据"""
+        documents = [
+            Document(page_content="页面1", metadata={"page": 1}),
+            Document(page_content="页面2", metadata={"page": 2}),
+        ]
+        
+        metadata = self.file_processor._collect_metadata(documents, "pdf")
+        
+        assert metadata["source_type"] == "pdf"
+        assert metadata["loader_type"] == "langchain_standard"
+        assert metadata["document_count"] == 2
+        assert metadata["page_count"] == 2
+
+    def test_collect_metadata_docx(self):
+        """测试收集DOCX元数据"""
+        documents = [
+            Document(page_content="内容", metadata={"source": "/tmp/test.docx"}),
+        ]
+        
+        metadata = self.file_processor._collect_metadata(documents, "docx")
+        
+        assert metadata["source_type"] == "docx"
+        assert metadata["document_count"] == 1
+        assert metadata["section_count"] == 1
+
+    def test_collect_metadata_image(self):
+        """测试收集图片元数据"""
+        documents = [
+            Document(
+                page_content="OCR文本", 
+                metadata={
+                    "image_width": 800,
+                    "image_height": 600,
+                    "ocr_confidence": 0.95
+                }
+            ),
+        ]
+        
+        metadata = self.file_processor._collect_metadata(documents, "image")
+        
+        assert metadata["source_type"] == "image"
+        assert metadata["document_count"] == 1
+        assert metadata["image_width"] == 800
+        assert metadata["ocr_confidence"] == 0.95
+
+    @pytest.mark.asyncio
+    async def test_add_chunks_to_vector_store(self):
+        """测试添加文本块到向量存储"""
+        chunks = ["文本块1", "文本块2"]
+        metadatas = [{"chunk_id": "1"}, {"chunk_id": "2"}]
+
+        # 模拟LLM检索服务的添加方法
+        with patch.object(
+            self.file_processor.llm_retrieval,
+            "add_documents_to_vector_store",
+            return_value=True,
+        ):
             # 执行测试
-            result = await self.file_processor.process_file(self.file_id)
+            result = await self.file_processor.add_chunks_to_vector_store(chunks, metadatas)
 
             # 验证结果
-            assert result["status"] == "error"
-            assert "error_message" in result
+            assert result is True
 
-            # 验证调用
-            self.file_repo.update_status.assert_called_with(
-                file_id=self.file_id,
-                status="error",
-                error_message="文件不存在或无法访问",
-            )
+    @pytest.mark.asyncio
+    async def test_remove_from_vector_store(self):
+        """测试从向量存储删除"""
+        file_id = "test-file-id"
 
-    def test_extract_pdf(self):
-        """测试PDF内容提取"""
-        # 创建模拟PDF内容
-        pdf_content = "这是PDF文件内容"
-        mock_pdf_reader = MagicMock()
-        mock_pdf_reader.pages = [MagicMock()]
-        mock_pdf_reader.pages[0].extract_text.return_value = pdf_content
-
-        # 模拟pypdf.PdfReader
-        with patch("pypdf.PdfReader", return_value=mock_pdf_reader):
+        # 模拟LLM检索服务的删除方法
+        with patch.object(
+            self.file_processor.llm_retrieval,
+            "remove_documents_from_vector_store",
+            return_value=True,
+        ):
             # 执行测试
-            content, metadata = self.file_processor._extract_pdf("/fake/path.pdf")
+            result = await self.file_processor.remove_from_vector_store(file_id)
 
             # 验证结果
-            assert content == pdf_content
-            assert metadata["page_count"] == 1
+            assert result is True
 
-    def test_extract_docx(self):
-        """测试DOCX内容提取"""
-        # 创建模拟DOCX内容
-        docx_content = "这是DOCX文件内容"
-        mock_doc = MagicMock()
-        mock_doc.paragraphs = [MagicMock()]
-        mock_doc.paragraphs[0].text = docx_content
+    def test_get_supported_file_types(self):
+        """测试获取支持的文件类型"""
+        supported_types = self.file_processor.get_supported_file_types()
+        
+        # 验证结果
+        assert isinstance(supported_types, list)
+        assert "pdf" in supported_types
+        assert "docx" in supported_types
+        assert "txt" in supported_types
+        assert "image" in supported_types
 
-        # 模拟docx.Document
-        with patch("docx.Document", return_value=mock_doc):
-            # 执行测试
-            content, metadata = self.file_processor._extract_docx("/fake/path.docx")
+    def test_validate_file_type(self):
+        """测试文件类型验证"""
+        # 测试支持的文件类型
+        assert self.file_processor.validate_file_type("pdf") is True
+        assert self.file_processor.validate_file_type("docx") is True
+        assert self.file_processor.validate_file_type("txt") is True
+        assert self.file_processor.validate_file_type("image") is True
+        
+        # 测试不支持的文件类型
+        assert self.file_processor.validate_file_type("xyz") is False
+        assert self.file_processor.validate_file_type("") is False
 
+    def test_get_loader_info(self):
+        """测试获取加载器信息"""
+        loader_info = self.file_processor.get_loader_info()
+        
+        # 验证结果
+        assert isinstance(loader_info, dict)
+        assert loader_info["pdf"] == "PyPDFLoader"
+        assert loader_info["docx"] == "Docx2txtLoader"
+        assert loader_info["txt"] == "TextLoader"
+        assert loader_info["image"] == "UnstructuredImageLoader"
+
+    @pytest.mark.asyncio
+    async def test_validate_loader_availability(self):
+        """测试验证加载器可用性"""
+        # 模拟所有加载器都可用
+        with patch("builtins.__import__"):
+            availability = await self.file_processor.validate_loader_availability()
+            
             # 验证结果
-            assert content == docx_content
-            assert "paragraphs" in metadata
+            assert isinstance(availability, dict)
+            assert all(isinstance(v, bool) for v in availability.values())
 
-    def test_extract_txt(self):
-        """测试TXT内容提取"""
-        # 创建模拟TXT内容
-        txt_content = "这是TXT文件内容"
+    @pytest.mark.asyncio
+    async def test_process_empty_documents(self):
+        """测试处理空文档列表"""
+        file_path = "/tmp/empty.pdf"
+        file_type = "pdf"
 
-        # 模拟open函数
-        with patch("builtins.open", mock_open(read_data=txt_content)):
-            # 执行测试
-            content, metadata = self.file_processor._extract_txt("/fake/path.txt")
+        # 模拟返回空文档列表
+        with patch("os.path.exists", return_value=True):
+            with patch.object(
+                self.file_processor,
+                "_load_documents_with_langchain",
+                return_value=[]
+            ):
+                # 执行测试并期望异常
+                with pytest.raises(FileProcessingException, match="无法从文件中提取内容"):
+                    await self.file_processor.process_file_content(file_path, file_type)
 
-            # 验证结果
-            assert content == txt_content
-            assert "file_size" in metadata
+    @pytest.mark.asyncio
+    async def test_loader_error_handling(self):
+        """测试加载器错误处理"""
+        file_path = "/tmp/corrupt.pdf"
+        file_type = "pdf"
 
-    def test_extract_image(self):
-        """测试图片内容提取"""
-        # 创建模拟OCR结果
-        ocr_result = "这是图片中提取的文本"
-
-        # 模拟pytesseract和PIL
-        with patch("pytesseract.image_to_string", return_value=ocr_result):
-            with patch("PIL.Image.open", return_value=MagicMock()):
-                # 执行测试
-                content, metadata = self.file_processor._extract_image("/fake/path.jpg")
-
-                # 验证结果
-                assert content == ocr_result
-                assert "ocr_engine" in metadata
-
-    def test_extract_invalid_file(self):
-        """测试无效文件类型提取"""
-        # 执行测试，预期抛出异常
-        with pytest.raises(InvalidFileTypeException):
-            self.file_processor._extract_file_content("/fake/path.xyz", "xyz")
+        # 模拟文件存在但加载失败
+        with patch("os.path.exists", return_value=True):
+            with patch.object(
+                self.file_processor,
+                "_load_documents_with_langchain",
+                side_effect=Exception("加载失败")
+            ):
+                # 执行测试并期望异常
+                with pytest.raises(FileProcessingException, match="文件内容处理失败"):
+                    await self.file_processor.process_file_content(file_path, file_type)
