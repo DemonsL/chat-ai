@@ -49,6 +49,91 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 
+async def check_checkpointer_tables_exist(connection_pool):
+    """检查checkpointer表是否存在"""
+    try:
+        async with connection_pool.connection() as conn:
+            # 检查所有必需的表是否存在
+            tables_to_check = ['checkpoints', 'checkpoint_blobs', 'checkpoint_writes']
+            
+            for table_name in tables_to_check:
+                result = await conn.execute(
+                    "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = %s)",
+                    (table_name,)
+                )
+                table_exists = (await result.fetchone())[0]
+                
+                if not table_exists:
+                    logger.info(f"表 {table_name} 不存在")
+                    return False
+                    
+            logger.info("所有checkpointer表都已存在")
+            return True
+            
+    except Exception as e:
+        logger.error(f"检查表存在性失败: {e}")
+        return False
+
+
+async def safe_setup_checkpointer(checkpointer, connection_pool):
+    """安全地设置checkpointer"""
+    try:
+        # 首先检查基本表是否存在
+        tables_exist = await check_checkpointer_tables_exist(connection_pool)
+        
+        if not tables_exist:
+            logger.info("Checkpointer表不存在，执行初始化setup...")
+            try:
+                await asyncio.wait_for(checkpointer.setup(), timeout=60.0)
+                logger.info("AsyncPostgresSaver setup 完成")
+                return True
+            except asyncio.TimeoutError:
+                logger.error("AsyncPostgresSaver setup 超时（60秒）")
+                return False
+            except Exception as setup_error:
+                logger.error(f"AsyncPostgresSaver setup 失败: {setup_error}")
+                return False
+        else:
+            # 表存在，检查是否需要迁移
+            async with connection_pool.connection() as conn:
+                try:
+                    # 检查迁移表是否存在
+                    result = await conn.execute(
+                        "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'checkpoint_migrations')"
+                    )
+                    migrations_table_exists = (await result.fetchone())[0]
+                    
+                    if migrations_table_exists:
+                        # 获取当前迁移版本
+                        result = await conn.execute("SELECT MAX(v) FROM checkpoint_migrations")
+                        current_version = (await result.fetchone())[0]
+                        logger.info(f"当前checkpointer迁移版本: {current_version}")
+                        
+                        # 尝试运行setup以应用任何新的迁移
+                        logger.info("尝试应用新的迁移...")
+                        try:
+                            await asyncio.wait_for(checkpointer.setup(), timeout=30.0)
+                            logger.info("迁移应用完成")
+                            return True
+                        except asyncio.TimeoutError:
+                            logger.warning("迁移应用超时，使用现有表结构")
+                            return True
+                        except Exception as setup_error:
+                            logger.warning(f"迁移应用出现错误: {setup_error}")
+                            return True  # 继续使用现有表结构
+                    else:
+                        logger.info("迁移表不存在但基本表存在，跳过setup")
+                        return True
+                        
+                except Exception as e:
+                    logger.warning(f"检查迁移版本失败: {e}")
+                    return True  # 继续使用现有表结构
+            
+    except Exception as e:
+        logger.error(f"安全setup过程失败: {e}")
+        return False
+
+
 class CheckpointerManager:
     """Checkpointer 管理器"""
     
@@ -100,7 +185,13 @@ class CheckpointerManager:
                 # 获取数据库连接URL
                 database_url = getattr(settings, 'POSTGRES_DATABASE_URL', None)
                 if not database_url:
-                    raise ValueError("POSTGRES_DATABASE_URL 未配置")
+                    # 如果POSTGRES_DATABASE_URL未配置，使用SQLALCHEMY_DATABASE_URI构建
+                    database_url = settings.SQLALCHEMY_DATABASE_URI
+                    # 将asyncpg替换为psycopg，因为AsyncConnectionPool使用psycopg
+                    database_url = database_url.replace("postgresql+asyncpg://", "postgresql://")
+                    logger.info(f"使用构建的数据库URL进行checkpointer连接")
+                
+                logger.info(f"尝试连接数据库: {database_url.replace(settings.POSTGRES_PASSWORD, '***')}")
                 
                 # 配置连接池大小
                 max_size = getattr(settings, 'POSTGRES_POOL_SIZE', 5)
@@ -115,10 +206,24 @@ class CheckpointerManager:
                         "prepare_threshold": None,
                     },
                 )
-                await self._connection_pool.open()
-                logger.info(f"异步连接池创建成功，最大连接数: {max_size}")
+                
+                # 设置连接池打开超时
+                try:
+                    await asyncio.wait_for(self._connection_pool.open(), timeout=15.0)
+                    logger.info(f"异步连接池创建成功，最大连接数: {max_size}")
+                except asyncio.TimeoutError:
+                    logger.error("连接池打开超时（15秒）")
+                    raise RuntimeError("数据库连接池打开超时")
+                    
             except Exception as e:
                 logger.error(f"异步连接池创建失败: {e}")
+                # 清理失败的连接池
+                if self._connection_pool:
+                    try:
+                        await self._connection_pool.close()
+                    except:
+                        pass
+                    self._connection_pool = None
                 raise e
         return self._connection_pool
 
@@ -131,12 +236,10 @@ class CheckpointerManager:
             connection_pool = await self._get_connection_pool()
             checkpointer = AsyncPostgresSaver(connection_pool)
             
-            # 确保数据库表已创建（只在第一次需要）
-            try:
-                await checkpointer.setup()
-            except Exception as setup_error:
-                # 如果setup失败，表可能已经存在，继续使用
-                logger.debug(f"AsyncPostgresSaver setup 警告: {setup_error}")
+            # 使用安全的setup方法
+            setup_success = await safe_setup_checkpointer(checkpointer, connection_pool)
+            if not setup_success:
+                logger.warning("Checkpointer setup 失败，但继续使用")
             
             logger.debug("创建了新的 AsyncPostgresSaver 实例")
             return checkpointer
@@ -154,7 +257,10 @@ class CheckpointerManager:
             # 获取数据库连接URL
             database_url = getattr(settings, 'POSTGRES_DATABASE_URL', None)
             if not database_url:
-                raise ValueError("POSTGRES_DATABASE_URL 未配置")
+                # 如果POSTGRES_DATABASE_URL未配置，使用SQLALCHEMY_DATABASE_URI构建
+                database_url = settings.SQLALCHEMY_DATABASE_URI
+                # 将asyncpg替换为psycopg，因为PostgresSaver使用psycopg
+                database_url = database_url.replace("postgresql+asyncpg://", "postgresql://")
             
             # 创建同步PostgresSaver
             postgres_saver_context = PostgresSaver.from_conn_string(database_url)

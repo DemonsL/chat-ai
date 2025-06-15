@@ -15,7 +15,18 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "dev"
 
     # CORS 配置
-    CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:8000"]
+    CORS_ORIGINS: List[str] = [
+        "http://localhost:3000", 
+        "http://localhost:8000", 
+        "http://localhost:8080",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:8000", 
+        "http://127.0.0.1:8080",
+        "http://localhost:5173",  # Vite 默认端口
+        "http://127.0.0.1:5173",
+        "http://localhost:5000",  # 其他常用端口
+        "http://127.0.0.1:5000"
+    ]
 
     # JWT设置
     SECRET_KEY: str = Field(default_factory=lambda: secrets.token_urlsafe(32))

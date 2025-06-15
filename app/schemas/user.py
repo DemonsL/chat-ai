@@ -13,6 +13,7 @@ class UserBase(BaseSchema):
 
     email: Optional[EmailStr] = None
     username: Optional[str] = None
+    full_name: Optional[str] = None
     is_active: Optional[bool] = True
     default_model_id: Optional[str] = None
     ui_theme: Optional[str] = "light"
@@ -26,6 +27,7 @@ class UserCreate(UserBase):
     email: EmailStr
     username: str = Field(..., min_length=3, max_length=50)
     password: str = Field(..., min_length=8)
+    full_name: Optional[str] = None
 
 
 class UserUpdate(UserBase):

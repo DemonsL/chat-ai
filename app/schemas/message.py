@@ -55,21 +55,28 @@ class MessageUpdate(BaseSchema):
     tokens: Optional[TokenCount] = None
 
 
-class MessageInDBBase(MessageBase, BaseModelSchema):
+class MessageInDBBase(BaseModelSchema):
     """
     数据库中的消息信息
     """
 
     conversation_id: UUID
+    role: MessageRole
+    content: str
     tokens: Optional[TokenCount] = None
+    msg_metadata: Optional[Dict] = None
 
 
-class MessageResponse(MessageInDBBase):
+class MessageResponse(BaseModelSchema):
     """
     API 返回的消息信息
     """
-
-    pass
+    
+    conversation_id: UUID
+    role: MessageRole
+    content: str
+    tokens: Optional[TokenCount] = None
+    metadata: Optional[Dict] = None
 
 
 class MessageCreateRequest(BaseSchema):

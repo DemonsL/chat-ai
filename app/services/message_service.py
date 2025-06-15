@@ -255,7 +255,7 @@ class MessageService:
             "conversation_id": conversation_id,
             "role": role,
             "content": content,
-            "metadata": metadata,
+            "msg_metadata": metadata,
         }
         return await self.message_repo.create(obj_in=message_data)
 

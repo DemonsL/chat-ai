@@ -9,19 +9,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr-chi-sim \
     tesseract-ocr-eng \
     libtesseract-dev \
+    curl \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# 复制项目配置文件和README
+COPY pyproject.toml README.md /app/
+
+# 复制应用代码（为了构建需要）
+COPY app/ /app/app/
+
 # 安装 Python 依赖
-COPY pyproject.toml poetry.lock* /app/
-RUN pip install --no-cache-dir poetry && \
-    poetry config virtualenvs.create false && \
-    poetry install --only=main --no-root --no-interaction --no-ansi
+RUN pip install --no-cache-dir -e .
 
 # 创建目录
 RUN mkdir -p /app/uploads /app/chroma_db
 
-# 复制应用代码
+# 复制剩余的应用代码
 COPY . /app/
 
 # 设置环境变量

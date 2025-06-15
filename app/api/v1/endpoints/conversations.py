@@ -93,7 +93,23 @@ async def read_conversation_messages(
         messages = await message_orchestrator.get_conversation_messages(
             conversation_id=conversation_id, user_id=current_user.id
         )
-        return messages
+        
+        # 手动处理字段映射：msg_metadata -> metadata
+        result = []
+        for message in messages:
+            message_dict = {
+                "id": str(message.id),
+                "conversation_id": str(message.conversation_id),
+                "role": message.role,
+                "content": message.content,
+                "tokens": message.tokens,
+                "metadata": message.msg_metadata,  # 关键修复：映射字段名
+                "created_at": message.created_at.isoformat() if message.created_at else None,
+                "updated_at": message.updated_at.isoformat() if message.updated_at else None,
+            }
+            result.append(message_dict)
+        
+        return result
     except NotFoundException as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

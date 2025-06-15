@@ -40,10 +40,10 @@ body {
 }
 
 .btn {
-    padding: 12px 24px;
+    padding: 10px 20px;
     border: none;
     border-radius: 8px;
-    font-size: 1rem;
+    font-size: 0.9rem;
     font-weight: 500;
     cursor: pointer;
     transition: all 0.2s;
@@ -78,18 +78,21 @@ body {
     background-color: #565869;
 }
 
-/* 模态框样式 */
+/* 模态框样式 - 完全重写 */
 .modal {
     position: fixed;
     top: 0;
     left: 0;
-    width: 100%;
-    height: 100%;
+    width: 100vw;
+    height: 100vh;
     background-color: rgba(0, 0, 0, 0.8);
     display: flex;
     justify-content: center;
-    align-items: center;
-    z-index: 1000;
+    align-items: flex-start;
+    z-index: 9999;
+    padding: 10px;
+    box-sizing: border-box;
+    overflow-y: auto;
 }
 
 .modal.hidden {
@@ -99,23 +102,93 @@ body {
 .modal-content {
     background-color: #2f2f2f;
     border-radius: 12px;
-    padding: 24px;
-    width: 90%;
-    max-width: 400px;
+    padding: 16px;
+    width: 100%;
+    max-width: 450px;
+    max-height: calc(100vh - 20px);
+    overflow-y: auto;
     box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.4);
+    position: relative;
+    margin-top: 10px;
+    display: flex;
+    flex-direction: column;
+}
+
+/* 模型表单的特殊样式 */
+.model-form {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex: 1;
+    min-height: 0;
+}
+
+.form-row {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+/* 大屏幕时使用两列布局 */
+@media (min-width: 600px) {
+    .modal {
+        padding: 20px;
+    }
+    
+    .modal-content {
+        margin-top: 20px;
+        max-height: calc(100vh - 40px);
+    }
+    
+    .form-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+    }
+    
+    .model-form {
+        gap: 12px;
+    }
+}
+
+.form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid #40414f;
+    flex-shrink: 0;
+}
+
+/* 模型详情模态框样式 */
+.modal-content.model-details-modal {
+    max-width: 400px;
+}
+
+.modal-actions {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid #40414f;
+    flex-shrink: 0;
 }
 
 .modal-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 20px;
+    margin-bottom: 12px;
+    flex-shrink: 0;
 }
 
 .modal-header h2 {
     color: #ececec;
-    font-size: 1.5rem;
+    font-size: 1.2rem;
     font-weight: 600;
+    margin: 0;
 }
 
 .close-btn {
@@ -144,24 +217,24 @@ body {
 .form-group {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 6px;
 }
 
 .form-group label {
     color: #ececec;
     font-weight: 500;
-    font-size: 0.9rem;
+    font-size: 0.85rem;
 }
 
 .form-group input,
 .form-group select,
 .form-group textarea {
-    padding: 12px;
+    padding: 8px;
     border: 1px solid #40414f;
-    border-radius: 8px;
+    border-radius: 6px;
     background-color: #40414f;
     color: #ececec;
-    font-size: 1rem;
+    font-size: 0.85rem;
     transition: all 0.2s;
 }
 
@@ -176,6 +249,11 @@ body {
 .form-group input::placeholder,
 .form-group textarea::placeholder {
     color: #8e8ea0;
+}
+
+.form-group textarea {
+    min-height: 50px;
+    resize: vertical;
 }
 
 /* 认证切换 */
