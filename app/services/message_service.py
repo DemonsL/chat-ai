@@ -141,10 +141,15 @@ class MessageService:
                 else:
                     logger.info("没有可用的已索引文件，使用聊天模式")
                     processing_mode = "chat"
-            # 3. 检查是否需要联网搜索（从元数据）
+            # 3. 检查是否需要联网搜索（从元数据或模式）
             elif metadata and (metadata.get("tools") and any(tool in ["search", "web_search"] for tool in metadata.get("tools", []))):
-                processing_mode = "agent"
-            # 4. 如果会话有固定模式且不是默认聊天模式，使用会话模式
+                processing_mode = "search"
+            elif metadata and metadata.get("mode") == "search":
+                processing_mode = "search"
+            # 4. 检查是否需要深度研究（从元数据或模式）
+            elif metadata and metadata.get("mode") == "deepresearch":
+                processing_mode = "deepresearch"
+            # 5. 如果会话有固定模式且不是默认聊天模式，使用会话模式
             elif conversation.mode and conversation.mode != "chat":
                 processing_mode = conversation.mode
             
@@ -155,6 +160,9 @@ class MessageService:
                 # 如果元数据中指定了具体工具，使用指定的工具
                 if metadata and metadata.get("tools"):
                     available_tools = metadata["tools"]
+            elif processing_mode in ["search", "deepresearch"]:
+                # 搜索和深度研究模式不需要传递额外工具，由内部处理
+                available_tools = None
             
             # 准备当前消息（不包含历史消息，由checkpointer处理）
             current_messages = [{"role": "user", "content": content}]

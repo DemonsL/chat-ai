@@ -76,6 +76,18 @@ class PromptManager:
         kwargs["user_query"] = user_query
         return format_prompt(self._cache["question_analysis"], **kwargs)
     
+    def get_search_prompt(self, **kwargs) -> str:
+        """获取搜索模式提示词"""
+        if "search" not in self._cache:
+            self._cache["search"] = load_prompt_template("search.md")
+        return format_prompt(self._cache["search"], **kwargs)
+    
+    def get_deepresearch_prompt(self, **kwargs) -> str:
+        """获取深度研究模式提示词"""
+        if "deepresearch" not in self._cache:
+            self._cache["deepresearch"] = load_prompt_template("deepresearch.md")
+        return format_prompt(self._cache["deepresearch"], **kwargs)
+    
     def clear_cache(self):
         """清空提示词缓存"""
         self._cache.clear()

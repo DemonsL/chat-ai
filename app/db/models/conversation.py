@@ -27,7 +27,7 @@ class Conversation(Base):
     user_id = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=False)
     model_id = Column(String, nullable=False)  # 使用的模型ID
     mode = Column(
-        Enum("chat", "rag", "deepresearch", name="conversation_mode"),
+        Enum("chat", "rag", "deepresearch", "search", name="conversation_mode"),
         nullable=False,
         default="chat",
     )

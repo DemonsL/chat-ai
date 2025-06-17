@@ -15,6 +15,7 @@ class ConversationMode(str, Enum):
     CHAT = "chat"
     RAG = "rag"
     DEEPRESEARCH = "deepresearch"
+    SEARCH = "search"
 
 
 class ConversationBase(BaseSchema):

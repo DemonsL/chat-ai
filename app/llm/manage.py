@@ -28,6 +28,8 @@ class ConversationMode(str, Enum):
     CHAT = "chat"
     RAG = "rag"
     AGENT = "agent"
+    SEARCH = "search"
+    DEEPRESEARCH = "deepresearch"
 
 
 class QuestionAnalysisResult(BaseModel):
@@ -62,6 +64,11 @@ class ConversationState(TypedDict):
     user_query: Optional[str]
     final_response: Optional[str]
     conversation_id: Optional[str]  # 添加对话ID用于checkpointer
+    # 深度研究相关状态
+    research_iterations: Optional[int]
+    search_history: Optional[List[Dict[str, Any]]]
+    current_findings: Optional[List[str]]
+    research_plan: Optional[str]
 
 
 class LLMManager:
@@ -546,6 +553,755 @@ class LLMManager:
         
         return graph_builder  # 返回未编译的图构建器
     
+    def _build_search_graph(self) -> StateGraph:
+        """构建搜索模式的状态图"""
+        
+        def search_planning_node(state: ConversationState) -> Dict[str, Any]:
+            """搜索规划节点 - 分析用户问题并生成搜索查询"""
+            model = self._get_model(state["model_config"])
+            messages = state.get("messages") or []
+            user_query = state.get("user_query") or (messages[-1].content if messages else "")
+            
+            # 构建搜索规划提示
+            planning_prompt = f"""
+请分析以下用户问题，并生成1-3个相关但不重复的搜索查询来获取全面信息。
+每个搜索查询应该从不同角度或方面来探索这个问题。
+
+用户问题：{user_query}
+
+请只返回搜索查询，每行一个，不需要其他解释：
+"""
+            
+            planning_messages = [SystemMessage(content=planning_prompt)]
+            
+            try:
+                response = model.invoke(planning_messages)
+                search_queries_text = response.content.strip()
+                
+                # 解析搜索查询
+                search_queries = []
+                for line in search_queries_text.split('\n'):
+                    query = line.strip()
+                    if query and not query.startswith('#') and not query.startswith('搜索查询'):
+                        # 清理可能的序号或标点
+                        import re
+                        query = re.sub(r'^\d+[\.、]\s*', '', query)
+                        query = query.strip('- ')
+                        if query:
+                            search_queries.append(query)
+                
+                # 限制搜索查询数量
+                search_queries = search_queries[:3]
+                
+                if not search_queries:
+                    search_queries = [user_query]  # 如果解析失败，使用原始查询
+                
+                logger.info(f"搜索规划完成，生成 {len(search_queries)} 个查询: {search_queries}")
+                
+                return {
+                    "metadata": {
+                        **state.get("metadata", {}),
+                        "search_queries": search_queries,
+                        "planning_completed": True
+                    }
+                }
+                
+            except Exception as e:
+                logger.error(f"搜索规划失败: {str(e)}")
+                # 规划失败，使用原始查询
+                return {
+                    "metadata": {
+                        **state.get("metadata", {}),
+                        "search_queries": [user_query],
+                        "planning_completed": True,
+                        "planning_error": str(e)
+                    }
+                }
+        
+        def execute_search_node(state: ConversationState) -> Dict[str, Any]:
+            """执行搜索节点 - 使用DuckDuckGo进行实际搜索"""
+            import asyncio
+            from app.llm.tools.duckduckgo_search import duckduckgo_search_tool
+            
+            metadata = state.get("metadata", {})
+            search_queries = metadata.get("search_queries", [])
+            
+            search_results = []
+            search_info = {}
+            
+            if not search_queries:
+                search_info = {
+                    "status": "搜索失败",
+                    "error": "没有生成搜索查询",
+                    "query_count": 0,
+                    "result_count": 0
+                }
+            else:
+                try:
+                    logger.info(f"开始执行 {len(search_queries)} 个搜索查询")
+                    
+                    # 使用DuckDuckGo工具进行搜索
+                    for i, query in enumerate(search_queries):
+                        try:
+                            # 调用DuckDuckGo搜索工具
+                            result = duckduckgo_search_tool.invoke({"query": query})
+                            
+                            if result and isinstance(result, str):
+                                # 添加搜索结果，标明来源查询
+                                search_results.append({
+                                    "query": query,
+                                    "content": result,
+                                    "source": f"搜索查询 {i+1}",
+                                    "tool": "duckduckgo"
+                                })
+                                logger.info(f"查询 '{query}' 搜索成功，结果长度: {len(result)}")
+                            else:
+                                logger.warning(f"查询 '{query}' 没有返回有效结果")
+                        
+                        except Exception as e:
+                            logger.error(f"查询 '{query}' 搜索失败: {str(e)}")
+                            search_results.append({
+                                "query": query,
+                                "content": f"搜索失败: {str(e)}",
+                                "source": f"搜索查询 {i+1}",
+                                "tool": "duckduckgo",
+                                "error": True
+                            })
+                    
+                    search_info = {
+                        "status": "搜索完成",
+                        "query_count": len(search_queries),
+                        "result_count": len([r for r in search_results if not r.get("error", False)]),
+                        "error_count": len([r for r in search_results if r.get("error", False)]),
+                        "queries": search_queries
+                    }
+                    
+                    logger.info(f"搜索执行完成: 成功 {search_info['result_count']} 个，失败 {search_info['error_count']} 个")
+                    
+                except Exception as e:
+                    logger.error(f"搜索执行失败: {str(e)}")
+                    search_info = {
+                        "status": "搜索失败",
+                        "error": str(e),
+                        "query_count": len(search_queries),
+                        "result_count": 0
+                    }
+            
+            return {
+                "retrieved_documents": [r["content"] for r in search_results if not r.get("error", False)],
+                "metadata": {
+                    **state.get("metadata", {}),
+                    "search_completed": True,
+                    "search_results": search_results,
+                    "search_info": search_info
+                }
+            }
+        
+        def search_response_node(state: ConversationState) -> Dict[str, Any]:
+            """搜索响应节点 - 基于搜索结果生成回答"""
+            model = self._get_model(state["model_config"])
+            messages = state.get("messages") or []
+            user_query = state.get("user_query") or (messages[-1].content if messages else "")
+            retrieved_docs = state.get("retrieved_documents") or []
+            metadata = state.get("metadata", {})
+            
+            # 获取搜索相关信息
+            search_info = metadata.get("search_info", {})
+            search_results = metadata.get("search_results", [])
+            
+            # 构建系统提示
+            system_prompt = state.get("system_prompt")
+            if not system_prompt:
+                system_prompt = prompt_manager.get_search_prompt()
+            
+            # 构建消息列表
+            final_messages = [SystemMessage(content=system_prompt)]
+            
+            # 如果有搜索结果，添加搜索上下文
+            if retrieved_docs:
+                context_parts = []
+                for i, (doc, result) in enumerate(zip(retrieved_docs, search_results)):
+                    if not result.get("error", False):
+                        context_parts.append(f"## 搜索结果 {i+1}: {result['query']}\n\n{doc}")
+                
+                if context_parts:
+                    search_context = "\n\n---\n\n".join(context_parts)
+                    context_message = f"基于以下搜索结果回答用户问题：\n\n{search_context}"
+                    final_messages.append(SystemMessage(content=context_message))
+            else:
+                # 没有搜索结果的情况
+                no_result_message = "搜索没有返回有效结果，请基于常识回答用户问题，并说明可能需要更具体的搜索词。"
+                final_messages.append(SystemMessage(content=no_result_message))
+            
+            # 添加用户消息
+            final_messages.extend(messages)
+            
+            # 调用模型生成回答
+            try:
+                response = model.invoke(final_messages)
+                
+                # 准备来源信息
+                sources = []
+                if search_results:
+                    for result in search_results:
+                        if not result.get("error", False):
+                            sources.append({
+                                "query": result["query"],
+                                "content": result["content"][:200] + "..." if len(result["content"]) > 200 else result["content"],
+                                "tool": result.get("tool", "unknown")
+                            })
+                
+                # 准备响应元数据
+                response_metadata = {
+                    "mode": "search",
+                    "search_info": search_info,
+                    "source_count": len(sources),
+                    "sources": sources,
+                    "processing_type": "联网搜索"
+                }
+                
+                return {
+                    "messages": [response],
+                    "final_response": response.content,
+                    "metadata": response_metadata
+                }
+                
+            except Exception as e:
+                logger.error(f"搜索响应生成失败: {str(e)}")
+                return {
+                    "final_response": f"生成搜索回答时出错: {str(e)}",
+                    "metadata": {
+                        "mode": "search",
+                        "error": True,
+                        "error_type": "response_generation_failed",
+                        "error_message": str(e),
+                        "search_info": search_info
+                    }
+                }
+        
+        # 构建图但不编译
+        graph_builder = StateGraph(ConversationState)
+        
+        # 添加节点
+        graph_builder.add_node("search_planning", search_planning_node)
+        graph_builder.add_node("execute_search", execute_search_node)
+        graph_builder.add_node("search_response", search_response_node)
+        
+        # 添加边：规划 -> 搜索 -> 响应
+        graph_builder.add_edge(START, "search_planning")
+        graph_builder.add_edge("search_planning", "execute_search")
+        graph_builder.add_edge("execute_search", "search_response")
+        graph_builder.add_edge("search_response", END)
+        
+        return graph_builder  # 返回未编译的图构建器
+    
+    def _build_deepresearch_graph(self) -> StateGraph:
+        """构建深度研究模式的状态图 - 基于ReAct模式的多轮搜索"""
+        
+        def research_planning_node(state: ConversationState) -> Dict[str, Any]:
+            """研究规划节点 - 分析问题并制定研究计划"""
+            model = self._get_model(state["model_config"])
+            messages = state.get("messages") or []
+            user_query = state.get("user_query") or (messages[-1].content if messages else "")
+            
+            # 构建研究规划提示
+            planning_prompt = f"""
+🤔 深度研究规划
+
+作为专业研究分析师，请为以下研究主题制定详细的研究计划：
+
+研究主题：{user_query}
+
+请分析并制定研究计划，包括：
+
+1. **研究目标分解**
+   - 主要研究目标
+   - 关键研究问题 
+   - 需要收集的信息类型
+
+2. **搜索策略规划**
+   - 第一轮搜索：基础信息和背景
+   - 第二轮搜索：深度分析和专业观点
+   - 第三轮搜索：最新发展和趋势
+
+3. **预期产出**
+   - 最终报告应包含的核心内容
+   - 重点关注的分析角度
+
+请提供一个结构化的研究计划，指导后续的多轮搜索和分析。
+"""
+            
+            planning_messages = [SystemMessage(content=planning_prompt)]
+            
+            try:
+                response = model.invoke(planning_messages)
+                research_plan = response.content.strip()
+                
+                # 根据计划生成第一轮搜索查询
+                query_prompt = f"""
+基于以下研究计划，生成3个第一轮搜索查询，用于收集基础信息和背景：
+
+研究计划：
+{research_plan}
+
+原始问题：{user_query}
+
+请只返回搜索查询，每行一个：
+"""
+                
+                query_response = model.invoke([SystemMessage(content=query_prompt)])
+                search_queries_text = query_response.content.strip()
+                
+                # 解析搜索查询
+                initial_queries = []
+                for line in search_queries_text.split('\n'):
+                    query = line.strip()
+                    if query and not query.startswith('#'):
+                        import re
+                        query = re.sub(r'^\d+[\.、]\s*', '', query)
+                        query = query.strip('- ')
+                        if query:
+                            initial_queries.append(query)
+                
+                initial_queries = initial_queries[:3]  # 限制为3个查询
+                
+                if not initial_queries:
+                    initial_queries = [user_query]  # 回退
+                
+                logger.info(f"研究规划完成，生成初始查询: {initial_queries}")
+                
+                return {
+                    "metadata": {
+                        **state.get("metadata", {}),
+                        "research_phase": "planning",
+                        "current_iteration": 1,
+                        "max_iterations": 3
+                    },
+                    "research_plan": research_plan,
+                    "research_iterations": 1,
+                    "search_history": [{
+                        "iteration": 1,
+                        "phase": "initial_exploration",
+                        "queries": initial_queries,
+                        "purpose": "收集基础信息和背景"
+                    }],
+                    "current_findings": []
+                }
+                
+            except Exception as e:
+                logger.error(f"研究规划失败: {str(e)}")
+                return {
+                    "metadata": {
+                        **state.get("metadata", {}),
+                        "research_phase": "planning",
+                        "planning_error": str(e)
+                    },
+                    "research_plan": f"由于规划失败，将直接搜索用户问题: {user_query}",
+                    "research_iterations": 1,
+                    "search_history": [{
+                        "iteration": 1,
+                        "phase": "fallback",
+                        "queries": [user_query],
+                        "purpose": "直接搜索用户问题"
+                    }],
+                    "current_findings": []
+                }
+        
+        def execute_research_search_node(state: ConversationState) -> Dict[str, Any]:
+            """执行研究搜索节点 - 执行当前迭代的搜索"""
+            from app.llm.tools.duckduckgo_search import duckduckgo_search_tool
+            
+            search_history = state.get("search_history", [])
+            current_iteration = state.get("research_iterations", 1)
+            
+            if not search_history:
+                logger.error("没有搜索历史记录")
+                return {
+                    "metadata": {
+                        **state.get("metadata", {}),
+                        "search_error": "没有搜索历史记录"
+                    }
+                }
+            
+            # 获取当前迭代的搜索信息
+            current_search = None
+            for search in search_history:
+                if search.get("iteration") == current_iteration:
+                    current_search = search
+                    break
+            
+            if not current_search:
+                logger.error(f"找不到第 {current_iteration} 次迭代的搜索信息")
+                return {
+                    "metadata": {
+                        **state.get("metadata", {}),
+                        "search_error": f"找不到第 {current_iteration} 次迭代的搜索信息"
+                    }
+                }
+            
+            search_queries = current_search.get("queries", [])
+            search_results = []
+            
+            logger.info(f"开始第 {current_iteration} 轮搜索，查询数量: {len(search_queries)}")
+            
+            # 执行当前迭代的所有搜索查询
+            for i, query in enumerate(search_queries):
+                try:
+                    result = duckduckgo_search_tool.invoke({"query": query})
+                    if result and isinstance(result, str):
+                        search_results.append({
+                            "iteration": current_iteration,
+                            "query": query,
+                            "content": result,
+                            "index": i + 1,
+                            "success": True
+                        })
+                        logger.info(f"查询 '{query}' 搜索成功，结果长度: {len(result)}")
+                    else:
+                        logger.warning(f"查询 '{query}' 没有返回有效结果")
+                        search_results.append({
+                            "iteration": current_iteration,
+                            "query": query,
+                            "content": "搜索未返回有效结果",
+                            "index": i + 1,
+                            "success": False
+                        })
+                except Exception as e:
+                    logger.error(f"查询 '{query}' 搜索失败: {str(e)}")
+                    search_results.append({
+                        "iteration": current_iteration,
+                        "query": query,
+                        "content": f"搜索失败: {str(e)}",
+                        "index": i + 1,
+                        "success": False,
+                        "error": str(e)
+                    })
+            
+            # 更新搜索历史，添加结果
+            updated_search_history = search_history.copy()
+            for search in updated_search_history:
+                if search.get("iteration") == current_iteration:
+                    search["results"] = search_results
+                    search["completed"] = True
+                    break
+            
+            # 收集当前发现
+            current_findings = state.get("current_findings", [])
+            new_findings = []
+            for result in search_results:
+                if result.get("success", False):
+                    new_findings.append(f"【第{current_iteration}轮-查询{result['index']}】{result['query']}: {result['content'][:300]}...")
+            
+            updated_findings = current_findings + new_findings
+            
+            logger.info(f"第 {current_iteration} 轮搜索完成，成功: {len([r for r in search_results if r.get('success')])}, 失败: {len([r for r in search_results if not r.get('success')])}")
+            
+            return {
+                "search_history": updated_search_history,
+                "current_findings": updated_findings,
+                "retrieved_documents": [r["content"] for r in search_results if r.get("success", False)],
+                "metadata": {
+                    **state.get("metadata", {}),
+                    "current_iteration": current_iteration,
+                    "search_completed": True,
+                    "search_results_count": len([r for r in search_results if r.get("success")])
+                }
+            }
+        
+        def research_analysis_node(state: ConversationState) -> Dict[str, Any]:
+            """研究分析节点 - 分析当前结果并决定是否继续"""
+            model = self._get_model(state["model_config"])
+            current_iteration = state.get("research_iterations", 1)
+            max_iterations = state.get("metadata", {}).get("max_iterations", 3)
+            current_findings = state.get("current_findings", [])
+            research_plan = state.get("research_plan", "")
+            user_query = state.get("user_query", "")
+            
+            # 如果已达到最大迭代次数，标记完成
+            if current_iteration >= max_iterations:
+                logger.info(f"已达到最大迭代次数 {max_iterations}，准备生成最终报告")
+                return {
+                    "metadata": {
+                        **state.get("metadata", {}),
+                        "research_phase": "final_report",
+                        "analysis_complete": True,
+                        "continue_research": False
+                    }
+                }
+            
+            # 分析当前收集的信息
+            findings_text = "\n\n".join(current_findings) if current_findings else "暂无有效发现"
+            
+            analysis_prompt = f"""
+🤔 研究进度分析
+
+原始研究问题：{user_query}
+
+研究计划：
+{research_plan}
+
+当前迭代：{current_iteration}/{max_iterations}
+
+已收集的信息：
+{findings_text}
+
+请分析当前研究进度：
+
+1. **信息完整性评估**
+   - 当前信息是否足够回答原始问题？
+   - 还有哪些关键信息缺失？
+
+2. **下一轮搜索建议**
+   - 如果需要继续研究，应该搜索什么？
+   - 建议3个具体的搜索查询
+
+3. **研究决策**
+   - 是否应该继续下一轮搜索？
+   - 还是可以开始生成最终报告？
+
+请最后明确回答：CONTINUE（继续研究）或 COMPLETE（完成研究）
+"""
+            
+            try:
+                response = model.invoke([SystemMessage(content=analysis_prompt)])
+                analysis_result = response.content.strip()
+                
+                # 判断是否继续研究
+                continue_research = "CONTINUE" in analysis_result.upper() and "COMPLETE" not in analysis_result.upper()
+                
+                if continue_research and current_iteration < max_iterations:
+                    # 提取下一轮搜索查询
+                    next_queries = []
+                    lines = analysis_result.split('\n')
+                    capture_queries = False
+                    for line in lines:
+                        line = line.strip()
+                        if '搜索查询' in line or 'queries' in line.lower():
+                            capture_queries = True
+                            continue
+                        if capture_queries and line:
+                            if line.startswith(('1.', '2.', '3.', '-', '•')):
+                                import re
+                                query = re.sub(r'^[\d\.\-\•\s]+', '', line).strip()
+                                if query:
+                                    next_queries.append(query)
+                    
+                    # 如果没有提取到查询，生成默认查询
+                    if not next_queries:
+                        next_queries = [f"{user_query} 最新发展", f"{user_query} 专家观点", f"{user_query} 案例分析"]
+                    
+                    next_queries = next_queries[:3]  # 限制为3个
+                    
+                    # 更新搜索历史，添加下一轮
+                    search_history = state.get("search_history", [])
+                    next_iteration = current_iteration + 1
+                    search_history.append({
+                        "iteration": next_iteration,
+                        "phase": f"deep_dive_{next_iteration}",
+                        "queries": next_queries,
+                        "purpose": f"第{next_iteration}轮深度研究"
+                    })
+                    
+                    logger.info(f"决定继续第 {next_iteration} 轮研究，查询: {next_queries}")
+                    
+                    return {
+                        "search_history": search_history,
+                        "research_iterations": next_iteration,
+                        "metadata": {
+                            **state.get("metadata", {}),
+                            "research_phase": f"iteration_{next_iteration}",
+                            "continue_research": True,
+                            "analysis_result": analysis_result[:500] + "..."  # 截断以节省空间
+                        }
+                    }
+                else:
+                    logger.info("分析决定完成研究，准备生成最终报告")
+                    return {
+                        "metadata": {
+                            **state.get("metadata", {}),
+                            "research_phase": "final_report",
+                            "continue_research": False,
+                            "analysis_result": analysis_result[:500] + "..."
+                        }
+                    }
+                    
+            except Exception as e:
+                logger.error(f"研究分析失败: {str(e)}")
+                # 分析失败，默认完成研究
+                return {
+                    "metadata": {
+                        **state.get("metadata", {}),
+                        "research_phase": "final_report",
+                        "continue_research": False,
+                        "analysis_error": str(e)
+                    }
+                }
+        
+        def generate_research_report_node(state: ConversationState) -> Dict[str, Any]:
+            """生成研究报告节点 - 基于所有收集的信息生成最终报告"""
+            model = self._get_model(state["model_config"])
+            user_query = state.get("user_query", "")
+            research_plan = state.get("research_plan", "")
+            current_findings = state.get("current_findings", [])
+            search_history = state.get("search_history", [])
+            messages = state.get("messages") or []
+            
+            # 构建系统提示
+            system_prompt = state.get("system_prompt")
+            if not system_prompt:
+                system_prompt = prompt_manager.get_deepresearch_prompt()
+            
+            # 准备研究过程总结
+            research_summary = []
+            for search in search_history:
+                iteration = search.get("iteration", 0)
+                phase = search.get("phase", "unknown")
+                queries = search.get("queries", [])
+                purpose = search.get("purpose", "")
+                research_summary.append(f"第{iteration}轮 ({phase}): {purpose} - 查询: {', '.join(queries)}")
+            
+            research_process = "\n".join(research_summary)
+            
+            # 整理所有发现
+            all_findings = "\n\n".join(current_findings) if current_findings else "未收集到有效信息"
+            
+            # 构建最终报告生成提示
+            report_prompt = f"""
+基于深度研究结果，请生成一份全面的研究报告：
+
+## 研究背景
+原始问题：{user_query}
+
+研究计划：
+{research_plan}
+
+## 研究过程
+{research_process}
+
+## 收集的信息
+{all_findings}
+
+## 要求
+请生成一份结构化的研究报告，包括：
+
+1. **执行摘要** - 核心发现和关键结论
+2. **详细分析** - 分主题的深入分析
+3. **关键发现** - 重要数据和洞察
+4. **多元视角** - 不同角度的观点
+5. **结论与建议** - 总结和建议
+6. **研究局限** - 承认信息的限制
+
+请确保报告：
+- 结构清晰，逻辑严密
+- 基于实际收集的信息
+- 提供有洞察力的分析
+- 使用中文撰写
+"""
+            
+            # 构建消息列表
+            final_messages = [SystemMessage(content=system_prompt)]
+            final_messages.append(SystemMessage(content=report_prompt))
+            final_messages.extend(messages)
+            
+            try:
+                response = model.invoke(final_messages)
+                
+                # 准备响应元数据
+                response_metadata = {
+                    "mode": "deepresearch",
+                    "total_iterations": len(search_history),
+                    "total_findings": len(current_findings),
+                    "research_process": research_process,
+                    "processing_type": "深度研究报告"
+                }
+                
+                # 添加搜索来源信息
+                sources = []
+                for finding in current_findings:
+                    if "】" in finding:
+                        source_info = finding.split("】")[0] + "】"
+                        content_preview = finding.split("】")[1][:200] if "】" in finding else finding[:200]
+                        sources.append({
+                            "source": source_info,
+                            "content": content_preview + "..." if len(content_preview) == 200 else content_preview
+                        })
+                
+                response_metadata["sources"] = sources[:10]  # 限制显示前10个来源
+                
+                logger.info(f"深度研究报告生成成功，总迭代次数: {len(search_history)}, 发现数量: {len(current_findings)}")
+                
+                return {
+                    "messages": [response],
+                    "final_response": response.content,
+                    "metadata": response_metadata
+                }
+                
+            except Exception as e:
+                logger.error(f"研究报告生成失败: {str(e)}")
+                return {
+                    "final_response": f"生成研究报告时出错: {str(e)}",
+                    "metadata": {
+                        "mode": "deepresearch",
+                        "error": True,
+                        "error_type": "report_generation_failed",
+                        "error_message": str(e),
+                        "total_iterations": len(search_history),
+                        "total_findings": len(current_findings)
+                    }
+                }
+        
+        def route_research_flow(state: ConversationState) -> str:
+            """路由研究流程 - 决定下一步动作"""
+            metadata = state.get("metadata", {})
+            research_phase = metadata.get("research_phase", "planning")
+            continue_research = metadata.get("continue_research", True)
+            
+            if research_phase == "planning":
+                return "execute_search"
+            elif research_phase.startswith("iteration_") or metadata.get("search_completed", False):
+                if continue_research:
+                    return "execute_search"
+                else:
+                    return "generate_report"
+            elif research_phase == "final_report":
+                return "generate_report"
+            else:
+                # 默认分析当前状态
+                return "analyze_progress"
+        
+        # 构建图但不编译
+        graph_builder = StateGraph(ConversationState)
+        
+        # 添加节点
+        graph_builder.add_node("research_planning", research_planning_node)
+        graph_builder.add_node("execute_search", execute_research_search_node)
+        graph_builder.add_node("analyze_progress", research_analysis_node)
+        graph_builder.add_node("generate_report", generate_research_report_node)
+        
+        # 添加边和条件路由
+        graph_builder.add_edge(START, "research_planning")
+        
+        # 从规划到执行搜索
+        graph_builder.add_edge("research_planning", "execute_search")
+        
+        # 从搜索执行到分析进度
+        graph_builder.add_edge("execute_search", "analyze_progress")
+        
+        # 从分析进度的条件路由
+        graph_builder.add_conditional_edges(
+            "analyze_progress",
+            route_research_flow,
+            {
+                "execute_search": "execute_search",
+                "generate_report": "generate_report"
+            }
+        )
+        
+        # 生成报告到结束
+        graph_builder.add_edge("generate_report", END)
+        
+        return graph_builder  # 返回未编译的图构建器
+    
     async def _get_graph(self, mode: str, conversation_id: Optional[UUID] = None):
         """获取对应模式的图（每次为特定conversation_id创建独立实例）"""
         # 构建基础图（未编译）
@@ -555,6 +1311,10 @@ class LLMManager:
             graph_builder = self._build_rag_graph()
         elif mode == "agent":
             graph_builder = self._build_agent_graph()
+        elif mode == "search":
+            graph_builder = self._build_search_graph()
+        elif mode == "deepresearch":
+            graph_builder = self._build_deepresearch_graph()
         else:
             # 默认使用聊天模式
             graph_builder = self._build_chat_graph()
@@ -725,6 +1485,36 @@ class LLMManager:
             mode="agent",
             system_prompt=system_prompt,
             available_tools=available_tools
+        ):
+            yield chunk
+    
+    async def process_search(
+        self,
+        messages: List[Dict[str, str]],
+        model_config: Dict[str, Any],
+        system_prompt: Optional[str] = None,
+    ) -> AsyncGenerator[str, None]:
+        """向后兼容的搜索处理方法"""
+        async for chunk in self.process_conversation(
+            messages=messages,
+            model_config=model_config,
+            mode="search",
+            system_prompt=system_prompt
+        ):
+            yield chunk
+    
+    async def process_deepresearch(
+        self,
+        messages: List[Dict[str, str]],
+        model_config: Dict[str, Any],
+        system_prompt: Optional[str] = None,
+    ) -> AsyncGenerator[str, None]:
+        """向后兼容的深度研究处理方法"""
+        async for chunk in self.process_conversation(
+            messages=messages,
+            model_config=model_config,
+            mode="deepresearch",
+            system_prompt=system_prompt
         ):
             yield chunk
     
