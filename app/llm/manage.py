@@ -6,6 +6,7 @@ from loguru import logger
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, SystemMessage
+from langchain_core.prompts import ChatPromptTemplate
 from langchain.chat_models import init_chat_model
 from typing_extensions import TypedDict
 from pydantic import BaseModel, Field
@@ -21,6 +22,7 @@ from app.llm.core.base import (
 )
 from app.llm.core.prompts import prompt_manager
 from app.llm.core.checkpointer import get_checkpointer, get_conversation_config
+from app.llm.rag.retrieval_service import LLMRetrievalService
 
 
 class ConversationMode(str, Enum):
@@ -32,23 +34,20 @@ class ConversationMode(str, Enum):
     DEEPRESEARCH = "deepresearch"
 
 
-class QuestionAnalysisResult(BaseModel):
-    """问题分析结果的结构化输出模型"""
-    question_type: Literal["knowledge_retrieval", "document_processing", "general_chat"] = Field(
-        description="问题类型：knowledge_retrieval(知识检索)、document_processing(文档处理)、general_chat(一般对话)"
+class DocQARouterResult(BaseModel):
+    """DocQA路由器结构化输出模型"""
+    question_category: Literal["document_related", "non_document"] = Field(
+        description="问题大类：document_related(文档相关)、non_document(非文档相关)"
     )
-    processing_strategy: Literal["standard_rag", "summarization", "analysis", "translation", "direct_answer"] = Field(
-        description="处理策略：standard_rag(标准RAG)、summarization(总结)、analysis(分析)、translation(翻译)、direct_answer(直接回答)"
+    analysis_type: Literal["full_document", "keyword_search", "general_chat"] = Field(
+        description="具体分析类型：full_document(全文档分析)、keyword_search(关键词检索)、general_chat(一般对话)"
     )
-    needs_retrieval: bool = Field(
-        description="是否需要检索文档内容"
+    reasoning: str = Field(
+        description="分析推理过程和依据"
     )
     confidence: float = Field(
         ge=0.0, le=1.0,
         description="分析结果的置信度，范围0.0-1.0"
-    )
-    reasoning: str = Field(
-        description="分析推理过程和依据"
     )
 
 
@@ -80,7 +79,7 @@ class LLMManager:
     def __init__(self, retrieval_service=None):
         self._model_cache = {}  # 缓存已创建的模型实例
         self._graphs = {}  # 缓存不同模式的图
-        self.retrieval_service = retrieval_service  # 检索服务依赖
+        self.retrieval_service = LLMRetrievalService()  # 检索服务依赖
         
     def _get_model(self, model_config: Dict[str, Any]) -> BaseChatModel:
         """获取或创建模型实例（带缓存）"""
@@ -149,245 +148,410 @@ class LLMManager:
         return graph_builder  # 返回未编译的图构建器
     
     def _build_rag_graph(self) -> StateGraph:
-        """构建RAG模式的状态图"""
+        """构建RAG模式的状态图 - 基于DocQA Router设计"""
         
-        def analyze_question_node(state: ConversationState) -> Dict[str, Any]:
-            """问题分析节点 - 使用LLM进行智能问题分析"""
+        def docqa_router_node(state: ConversationState) -> Dict[str, Any]:
+            """DocQA路由节点 - 智能判断问题类型"""
             messages = state.get("messages") or []
             user_query = state.get("user_query") or (messages[-1].content if messages else "")
             model = self._get_model(state["model_config"])
             
-            # 使用提示词管理器获取问题分析提示词
-            analysis_prompt = prompt_manager.get_question_analysis_prompt(user_query=user_query)
+            # 使用ChatPromptTemplate构建提示词
+            router_prompt = ChatPromptTemplate.from_messages([
+                ("system", """你是一个智能问题分析助手，需要分析用户问题并分类处理。
 
+请分析用户问题，判断其属于以下哪种类型：
+
+**文档相关类型：**
+1. **全文档分析** (full_document)：
+   - 要求对文档进行总结、概括、综述
+   - 需要分析整个文档的内容结构  
+   - 要求提取文档的主要观点、结论
+   - 需要对文档进行翻译、转换
+   - 关键词：总结、概括、分析全文、整体内容、主要观点、文档概述
+
+2. **关键词检索** (keyword_search)：
+   - 询问特定的事实、数据、概念
+   - 查找文档中的特定信息点
+   - 回答具体问题，不需要完整文档
+   - 关键词：什么是、如何、为什么、具体数据、特定概念
+
+**非文档相关类型：**
+3. **一般对话** (general_chat)：
+   - 问候、寒暄、感谢等社交对话
+   - 关于系统功能的询问
+   - 不需要文档内容的常识性问题
+   - 闲聊、娱乐性对话
+   - 关键词：你好、谢谢、再见、怎么样、聊天
+
+请准确分析并返回结构化结果。"""),
+                ("user", "用户问题：{query}")
+            ])
+            
             try:
-                # 首先尝试使用with_structured_output进行结构化输出
-                try:
-                    structured_model = model.with_structured_output(QuestionAnalysisResult)
-                    analysis_messages = [SystemMessage(content=analysis_prompt)]
-                    analysis_result: QuestionAnalysisResult = structured_model.invoke(analysis_messages)
-                    
-                    logger.info(f"LLM结构化分析成功: {analysis_result.question_type} -> {analysis_result.processing_strategy} (需要检索: {analysis_result.needs_retrieval}, 置信度: {analysis_result.confidence})")
-                    logger.info(f"分析推理: {analysis_result.reasoning}")
-                    
-                    return {
-                        "metadata": {
-                            **state.get("metadata", {}),
-                            "question_type": analysis_result.question_type,
-                            "processing_strategy": analysis_result.processing_strategy,
-                            "needs_retrieval": analysis_result.needs_retrieval,
-                            "analysis_confidence": analysis_result.confidence,
-                            "analysis_reasoning": analysis_result.reasoning,
-                            "analysis_method": "llm_structured",
-                            "analysis_completed": True
-                        }
-                    }
-                    
-                except Exception as structured_error:
-                    # 如果结构化输出失败，回退到JSON解析方式
-                    logger.warning(f"结构化输出失败，回退到JSON解析: {str(structured_error)}")
-                    
-                    # 调用LLM进行问题分析（传统方式）
-                    analysis_messages = [SystemMessage(content=analysis_prompt)]
-                    response = model.invoke(analysis_messages)
-                    analysis_text = response.content.strip()
-                    
-                    # 解析LLM返回的JSON结果
-                    import json
-                    import re
-                    
-                    # 尝试提取JSON部分
-                    json_match = re.search(r'\{.*\}', analysis_text, re.DOTALL)
-                    if json_match:
-                        json_str = json_match.group()
-                        analysis_data = json.loads(json_str)
-                    else:
-                        # 如果没有找到JSON，尝试直接解析
-                        analysis_data = json.loads(analysis_text)
-                    
-                    # 使用Pydantic模型验证数据
-                    analysis_result = QuestionAnalysisResult(**analysis_data)
-                    
-                    logger.info(f"LLM JSON解析成功: {analysis_result.question_type} -> {analysis_result.processing_strategy} (需要检索: {analysis_result.needs_retrieval}, 置信度: {analysis_result.confidence})")
-                    logger.info(f"分析推理: {analysis_result.reasoning}")
-                    
-                    return {
-                        "metadata": {
-                            **state.get("metadata", {}),
-                            "question_type": analysis_result.question_type,
-                            "processing_strategy": analysis_result.processing_strategy,
-                            "needs_retrieval": analysis_result.needs_retrieval,
-                            "analysis_confidence": analysis_result.confidence,
-                            "analysis_reasoning": analysis_result.reasoning,
-                            "analysis_method": "llm_json_fallback",
-                            "analysis_completed": True
-                        }
-                    }
+                # 使用结构化输出
+                structured_model = model.with_structured_output(DocQARouterResult)
                 
-            except Exception as e:
-                logger.error(f"LLM问题分析完全失败: {str(e)}")
+                # 调用模型进行路由判断
+                result: DocQARouterResult = structured_model.invoke(
+                    router_prompt.format_messages(query=user_query)
+                )
                 
-                # 分析失败，返回网络繁忙状态
+                # 判断具体类型
+                question_category = result.question_category
+                analysis_type = result.analysis_type
+                is_full_document_analysis = analysis_type == "full_document"
+                is_non_document = question_category == "non_document"
+                
+                logger.info(f"DocQA路由判断: {question_category} -> {analysis_type} (置信度: {result.confidence})")
+                logger.info(f"判断理由: {result.reasoning}")
+                
                 return {
                     "metadata": {
                         **state.get("metadata", {}),
-                        "analysis_error": True,
-                        "error_message": "网络繁忙，请稍后重试",
-                        "analysis_completed": False
+                        "question_category": question_category,
+                        "analysis_type": analysis_type,
+                        "is_full_document_analysis": is_full_document_analysis,
+                        "is_non_document": is_non_document,
+                        "routing_confidence": result.confidence,
+                        "routing_reasoning": result.reasoning,
+                        "routing_completed": True
+                    }
+                }
+                
+            except Exception as e:
+                logger.error(f"DocQA路由判断失败: {str(e)}")
+                # 路由失败，默认使用关键词检索
+                return {
+                    "metadata": {
+                        **state.get("metadata", {}),
+                        "question_category": "document_related",
+                        "analysis_type": "keyword_search",
+                        "is_full_document_analysis": False,
+                        "is_non_document": False,
+                        "routing_error": str(e),
+                        "routing_completed": True
                     }
                 }
         
-        def retrieve_documents_node(state: ConversationState) -> Dict[str, Any]:
-            """文档检索节点 - 执行真正的文档检索"""
-            import asyncio
-            
+        async def sim_search_node(state: ConversationState) -> Dict[str, Any]:
+            """相似度搜索节点 - 使用优化后的检索服务进行异步检索"""
             messages = state.get("messages") or []
             user_query = state.get("user_query") or (messages[-1].content if messages else "")
             metadata = state.get("metadata", {})
-            
-            # 获取文件ID列表和用户ID
-            available_file_ids = metadata.get("available_file_ids") or []
-            user_id_str = metadata.get("user_id")
+            model = self._get_model(state["model_config"])
             
             retrieved_docs = []
             retrieval_info = {}
+            no_sim_results = False
             
-            if available_file_ids and user_id_str and self.retrieval_service:
-                try:
-                    from uuid import UUID
-                    
-                    logger.info(f"开始检索 {len(available_file_ids)} 个文件的相关内容，查询: '{user_query}'")
-                    
-                    # 转换字符串ID为UUID
-                    file_ids = [UUID(fid) for fid in available_file_ids]
-                    user_id = UUID(user_id_str)
-                    
-                    # 在线程池中执行异步检索操作
-                    async def _async_retrieve():
-                        return await self.retrieval_service.retrieve_documents(
-                            query=user_query,
-                            file_ids=file_ids,
-                            user_id=user_id,
-                            top_k=5,
-                            similarity_threshold=0.3  # 使用较低的阈值以获得更多结果
-                        )
-                    
-                    # 在新事件循环中运行异步操作
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    try:
-                        retrieved_docs = loop.run_until_complete(_async_retrieve())
-                    finally:
-                        loop.close()
-                    
-                    retrieval_info = {
-                        "file_count": len(available_file_ids),
-                        "query": user_query,
-                        "document_count": len(retrieved_docs),
-                        "status": "检索成功",
-                        "user_id": user_id_str
-                    }
-                    
-                    logger.info(f"文档检索成功: 找到 {len(retrieved_docs)} 个相关文档片段")
-                    
-                except Exception as e:
-                    logger.error(f"文档检索失败: {str(e)}")
-                    retrieval_info = {
-                        "error": str(e),
-                        "status": "检索失败",
-                        "file_count": len(available_file_ids),
-                        "query": user_query,
-                        "user_id": user_id_str
-                    }
-            else:
-                missing_items = []
-                if not available_file_ids:
-                    missing_items.append("file_ids")
-                if not user_id_str:
-                    missing_items.append("user_id")
-                if not self.retrieval_service:
-                    missing_items.append("retrieval_service")
-                
+            # 检查检索服务是否可用
+            if not self.retrieval_service or not self.retrieval_service.is_ready:
+                no_sim_results = True
                 retrieval_info = {
-                    "status": f"检索条件不满足，缺少: {', '.join(missing_items)}",
-                    "file_count": len(available_file_ids),
-                    "has_service": bool(self.retrieval_service),
-                    "has_user_id": bool(user_id_str),
-                    "query": user_query
+                    "method": "langchain_similarity_search",
+                    "status": "检索服务不可用",
+                    "query": user_query,
+                    "no_sim_results": True
                 }
-                logger.warning(f"检索节点：检索条件不满足，缺少: {', '.join(missing_items)}")
+                logger.warning("相似度搜索：检索服务不可用")
+                
+                return {
+                    "retrieved_documents": retrieved_docs,
+                    "metadata": {
+                        **state.get("metadata", {}),
+                        "sim_search_completed": True,
+                        "no_sim_results": no_sim_results,
+                        "retrieval_info": retrieval_info,
+                        "document_count": 0
+                    }
+                }
+            
+            try:
+                # 第一步：使用模型优化查询
+                query_optimization_prompt = ChatPromptTemplate.from_messages([
+                    ("system", """你是一个专业的查询优化助手。请将用户的原始问题转换为更适合向量检索的查询。
+
+优化原则：
+1. 提取核心关键词和概念
+2. 去除冗余的语言表达
+3. 增加相关的同义词和概念
+4. 保持查询的语义完整性
+5. 针对文档检索进行优化
+
+请返回优化后的查询，保持简洁但信息丰富。"""),
+                    ("user", "原始问题: {original_query}")
+                ])
+                
+                logger.info(f"开始优化查询: '{user_query}'")
+                
+                # 调用模型优化查询
+                optimized_response = model.invoke(
+                    query_optimization_prompt.format_messages(original_query=user_query)
+                )
+                optimized_query = optimized_response.content.strip()
+                
+                logger.info(f"查询优化完成: '{user_query}' -> '{optimized_query}'")
+                
+                # 第二步：使用检索服务进行相似度搜索
+                search_results = await self.retrieval_service.similarity_search_with_score(
+                    query=optimized_query,
+                    k=5
+                )
+                
+                # 处理检索结果
+                similarity_threshold = 0.3  # 相似度阈值
+                filtered_results = [
+                    (doc, score) for doc, score in search_results 
+                    if score >= similarity_threshold
+                ]
+                
+                if filtered_results:
+                    retrieved_docs = [doc.page_content for doc, score in filtered_results]
+                    scores = [score for doc, score in filtered_results]
+                    
+                    retrieval_info = {
+                        "method": "langchain_similarity_search",
+                        "original_query": user_query,
+                        "optimized_query": optimized_query,
+                        "document_count": len(retrieved_docs),
+                        "similarity_scores": scores,
+                        "similarity_threshold": similarity_threshold,
+                        "total_candidates": len(search_results),
+                        "status": "相似度搜索成功"
+                    }
+                    
+                    logger.info(f"相似度搜索成功: 找到 {len(retrieved_docs)} 个相关文档片段")
+                    
+                else:
+                    # 没有满足阈值的结果
+                    no_sim_results = True
+                    all_scores = [score for doc, score in search_results] if search_results else []
+                    
+                    retrieval_info = {
+                        "method": "langchain_similarity_search", 
+                        "original_query": user_query,
+                        "optimized_query": optimized_query,
+                        "document_count": 0,
+                        "similarity_threshold": similarity_threshold,
+                        "total_candidates": len(search_results),
+                        "max_score": max(all_scores) if all_scores else 0,
+                        "status": "无满足阈值的相似文档",
+                        "no_sim_results": True
+                    }
+                    
+                    logger.info(f"相似度搜索: 无满足阈值 {similarity_threshold} 的文档")
+                
+            except Exception as e:
+                logger.error(f"相似度搜索失败: {str(e)}")
+                no_sim_results = True
+                retrieval_info = {
+                    "method": "langchain_similarity_search",
+                    "original_query": user_query,
+                    "optimized_query": optimized_query if 'optimized_query' in locals() else user_query,
+                    "error": str(e),
+                    "status": "相似度搜索失败",
+                    "no_sim_results": True
+                }
             
             return {
                 "retrieved_documents": retrieved_docs,
                 "metadata": {
                     **state.get("metadata", {}),
-                    "retrieval_completed": True,
+                    "sim_search_completed": True,
+                    "no_sim_results": no_sim_results,
                     "retrieval_info": retrieval_info,
                     "document_count": len(retrieved_docs)
                 }
             }
         
-        def rag_response_node(state: ConversationState) -> Dict[str, Any]:
-            """RAG响应节点 - 根据检索结果和用户问题生成回答"""
+        async def full_doc_qa_node(state: ConversationState) -> Dict[str, Any]:
+            """全文档QA节点 - 获取更多文档内容进行全文分析"""
+            messages = state.get("messages") or []
+            user_query = state.get("user_query") or (messages[-1].content if messages else "")
+            metadata = state.get("metadata", {})
+            
+            full_documents = []
+            retrieval_info = {}
+            
+            # 检查检索服务是否可用
+            if not self.retrieval_service or not self.retrieval_service.is_ready:
+                retrieval_info = {
+                    "method": "full_document_retrieval",
+                    "status": "检索服务不可用",
+                    "query": user_query
+                }
+                logger.warning("全文档QA：检索服务不可用")
+            else:
+                try:
+                    logger.info("开始全文档内容获取")
+                    
+                    # 使用更大的k值和更低的阈值获取更多文档内容
+                    search_results = await self.retrieval_service.similarity_search_with_score(
+                        query=user_query,
+                        k=20  # 获取更多文档片段
+                    )
+                    
+                    # 对于全文档分析，我们使用更宽松的阈值
+                    full_doc_threshold = 0.1  # 很低的阈值，获取更多内容
+                    filtered_results = [
+                        (doc, score) for doc, score in search_results 
+                        if score >= full_doc_threshold
+                    ]
+                    
+                    if filtered_results:
+                        full_documents = [doc.page_content for doc, score in filtered_results]
+                        scores = [score for doc, score in filtered_results]
+                        
+                        retrieval_info = {
+                            "method": "full_document_retrieval",
+                            "query": user_query,
+                            "document_count": len(full_documents),
+                            "similarity_scores": scores,
+                            "similarity_threshold": full_doc_threshold,
+                            "total_candidates": len(search_results),
+                            "status": "全文档获取成功"
+                        }
+                        
+                        logger.info(f"全文档获取成功: 获得 {len(full_documents)} 个文档片段")
+                    else:
+                        # 如果连低阈值都没有结果，则获取所有候选结果
+                        if search_results:
+                            full_documents = [doc.page_content for doc, score in search_results]
+                            scores = [score for doc, score in search_results]
+                            
+                            retrieval_info = {
+                                "method": "full_document_retrieval",
+                                "query": user_query,
+                                "document_count": len(full_documents),
+                                "similarity_scores": scores,
+                                "similarity_threshold": "all_candidates",
+                                "total_candidates": len(search_results),
+                                "status": "全文档获取成功（所有候选）"
+                            }
+                            
+                            logger.info(f"全文档获取成功（所有候选）: 获得 {len(full_documents)} 个文档片段")
+                        else:
+                            retrieval_info = {
+                                "method": "full_document_retrieval",
+                                "query": user_query,
+                                "document_count": 0,
+                                "status": "未找到任何文档内容"
+                            }
+                            logger.warning("全文档获取: 未找到任何文档内容")
+                    
+                except Exception as e:
+                    logger.error(f"全文档获取失败: {str(e)}")
+                    retrieval_info = {
+                        "method": "full_document_retrieval",
+                        "error": str(e),
+                        "status": "全文档获取失败",
+                        "query": user_query
+                    }
+            
+            return {
+                "retrieved_documents": full_documents,
+                "metadata": {
+                    **state.get("metadata", {}),
+                    "full_doc_completed": True,
+                    "retrieval_info": retrieval_info,
+                    "document_count": len(full_documents),
+                    "processing_type": "全文档分析"
+                }
+            }
+        
+        def unified_response_node(state: ConversationState) -> Dict[str, Any]:
+            """统一响应节点 - 处理所有类型的问题回答"""
             model = self._get_model(state["model_config"])
             messages = state.get("messages") or []
             user_query = state.get("user_query") or (messages[-1].content if messages else "")
             retrieved_docs = state.get("retrieved_documents") or []
             metadata = state.get("metadata", {})
             
-            processing_strategy = metadata.get("processing_strategy", "standard_rag")
-            needs_retrieval = metadata.get("needs_retrieval", True)
+            analysis_type = metadata.get("analysis_type", "keyword_search")
+            question_category = metadata.get("question_category", "document_related")
+            is_full_document_analysis = metadata.get("is_full_document_analysis", False)
+            is_non_document = metadata.get("is_non_document", False)
+            processing_type = metadata.get("processing_type", "知识检索")
             
-            # 构建系统提示
-            system_prompt = state.get("system_prompt")
-            if not system_prompt:
-                system_prompt = prompt_manager.get_rag_prompt()
-            
-            # 根据处理策略调整系统提示
-            if processing_strategy == "direct_answer":
-                system_prompt += "\n\n## 当前任务\n请基于常识直接回答用户问题，不需要检索文档。"
-            elif retrieved_docs:
-                if processing_strategy == "summarization":
-                    system_prompt += "\n\n## 当前任务\n请对提供的文档内容进行总结。"
-                elif processing_strategy == "analysis":
-                    system_prompt += "\n\n## 当前任务\n请对提供的文档内容进行深度分析。"
-                elif processing_strategy == "translation":
-                    system_prompt += "\n\n## 当前任务\n请对提供的文档内容进行翻译。"
-                else:
-                    system_prompt += "\n\n## 当前任务\n请基于检索到的文档内容回答用户问题。"
-            else:
-                system_prompt += "\n\n## 当前任务\n没有找到相关文档，请基于常识回答用户问题。"
-            
-            # 构建消息列表
-            final_messages = [SystemMessage(content=system_prompt)]
-            
-            # 如果有检索到的文档，添加文档上下文
-            if retrieved_docs:
-                if processing_strategy in ["summarization", "analysis", "translation"]:
-                    # 文档处理模式：提供完整文档内容
-                    context = "\n\n=== 文档分隔符 ===\n\n".join(retrieved_docs)
-                    context_message = f"需要处理的文档内容：\n\n{context}"
-                else:
-                    # 标准RAG模式：提供相关片段
-                    context = "\n\n".join([f"文档片段 {i+1}:\n{doc}" for i, doc in enumerate(retrieved_docs)])
-                    context_message = f"相关文档内容：\n\n{context}"
+            # 根据问题类型构建不同的提示词
+            if is_non_document:
+                # 非文档相关问题 - 直接对话
+                response_prompt = ChatPromptTemplate.from_messages([
+                    ("system", """你是一个友好、专业的AI助手。用户的问题不需要文档内容支持，请直接基于你的知识库回答。
+
+对于以下类型的问题，请提供相应的回答：
+- 问候和寒暄：友好回应
+- 功能询问：简要说明系统功能  
+- 常识问题：基于通用知识回答
+- 闲聊对话：自然互动
+
+请保持回答简洁、准确、友好。"""),
+                    ("placeholder", "{messages}")
+                ])
+                context_instruction = None
                 
-                final_messages.append(SystemMessage(content=context_message))
-            
-            # 添加用户消息
-            final_messages.extend(messages)
+            elif is_full_document_analysis:
+                # 全文档分析
+                response_prompt = ChatPromptTemplate.from_messages([
+                    ("system", """你是一个专业的文档分析助手。当前任务类型：全文档分析
+
+请基于提供的完整文档内容进行深度分析、总结或处理。
+注意整体性和全面性，提供结构化的分析结果。
+
+{context_instruction}"""),
+                    ("placeholder", "{messages}")
+                ])
+                
+                # 准备全文档上下文
+                if retrieved_docs:
+                    context = "\n\n=== 文档分隔符 ===\n\n".join(retrieved_docs)
+                    context_instruction = f"完整文档内容：\n\n{context}"
+                else:
+                    context_instruction = "没有找到相关文档内容，请基于常识回答用户问题。"
+                    
+            else:
+                # 关键词检索
+                response_prompt = ChatPromptTemplate.from_messages([
+                    ("system", """你是一个专业的知识问答助手。当前任务类型：关键词检索
+
+请基于检索到的相关文档片段回答用户的具体问题。
+重点关注问题的准确回答，引用相关片段支持答案。
+
+{context_instruction}"""),
+                    ("placeholder", "{messages}")
+                ])
+                
+                # 准备关键词检索上下文
+                if retrieved_docs:
+                    context = "\n\n".join([f"相关片段 {i+1}:\n{doc}" for i, doc in enumerate(retrieved_docs)])
+                    context_instruction = f"检索到的相关内容：\n\n{context}"
+                else:
+                    context_instruction = "没有找到相关文档内容，请基于常识回答用户问题。"
             
             # 调用模型生成回答
             try:
-                response = model.invoke(final_messages)
+                if is_non_document:
+                    # 非文档相关问题直接调用
+                    response = model.invoke(response_prompt.format_messages(messages=messages))
+                    processing_type = "直接对话"
+                    retrieval_method = "none"
+                else:
+                    # 文档相关问题需要上下文
+                    response = model.invoke(response_prompt.format_messages(
+                        context_instruction=context_instruction,
+                        messages=messages
+                    ))
+                    retrieval_method = "full_document" if is_full_document_analysis else "similarity_search"
                 
                 # 准备来源信息
                 sources = []
-                if retrieved_docs:
+                if retrieved_docs and not is_non_document:
                     sources = [
                         {
                             "content": doc[:200] + "..." if len(doc) > 200 else doc,
-                            "index": i
+                            "index": i,
+                            "type": "full_document" if is_full_document_analysis else "similarity_chunk"
                         } 
                         for i, doc in enumerate(retrieved_docs)
                     ]
@@ -395,23 +559,21 @@ class LLMManager:
                 # 准备响应元数据
                 response_metadata = {
                     "mode": "rag",
-                    "processing_strategy": processing_strategy,
-                    "needs_retrieval": needs_retrieval,
-                    "document_count": len(retrieved_docs),
-                    "sources": sources
+                    "question_category": question_category,
+                    "analysis_type": analysis_type,
+                    "is_full_document_analysis": is_full_document_analysis,
+                    "is_non_document": is_non_document,
+                    "processing_type": processing_type,
+                    "document_count": len(retrieved_docs) if not is_non_document else 0,
+                    "sources": sources,
+                    "retrieval_method": retrieval_method
                 }
                 
-                # 添加处理类型标识
-                if processing_strategy == "summarization":
-                    response_metadata["processing_type"] = "总结"
-                elif processing_strategy == "analysis":
-                    response_metadata["processing_type"] = "分析"
-                elif processing_strategy == "translation":
-                    response_metadata["processing_type"] = "翻译"
-                elif processing_strategy == "direct_answer":
-                    response_metadata["processing_type"] = "常识回答"
-                else:
-                    response_metadata["processing_type"] = "知识检索"
+                # 添加检索信息
+                if "retrieval_info" in metadata and not is_non_document:
+                    response_metadata["retrieval_info"] = metadata["retrieval_info"]
+                
+                logger.info(f"统一响应生成成功，类型: {question_category} -> {analysis_type}, 文档数: {len(retrieved_docs) if not is_non_document else 0}")
                 
                 return {
                     "messages": [response],
@@ -420,76 +582,97 @@ class LLMManager:
                 }
                 
             except Exception as e:
-                logger.error(f"RAG响应生成失败: {str(e)}")
+                logger.error(f"统一响应生成失败: {str(e)}")
                 return {
                     "final_response": f"生成回答时出错: {str(e)}",
                     "metadata": {
                         "mode": "rag",
                         "error": True,
-                        "error_type": "response_generation_failed",
-                        "error_message": str(e)
+                        "error_type": "unified_response_failed",
+                        "error_message": str(e),
+                        "analysis_type": analysis_type,
+                        "question_category": question_category
                     }
                 }
         
-        def error_response_node(state: ConversationState) -> Dict[str, Any]:
-            """错误响应节点 - 处理分析失败的情况"""
-            error_message = state.get("metadata", {}).get("error_message", "网络繁忙，请稍后重试")
-            
-            return {
-                "final_response": error_message,
-                "metadata": {
-                    "mode": "rag",
-                    "error": True,
-                    "error_type": "analysis_failed",
-                    "error_message": error_message
-                }
-            }
-        
-        def route_after_analysis(state: ConversationState) -> str:
-            """分析后的路由节点 - 决定是否需要检索"""
+        def route_after_router(state: ConversationState) -> str:
+            """路由器后的条件路由 - 根据问题类型选择处理流程"""
             metadata = state.get("metadata", {})
-            
-            # 检查分析是否失败
-            if metadata.get("analysis_error", False):
-                return "error_response"
-            
-            needs_retrieval = metadata.get("needs_retrieval", True)
+            is_non_document = metadata.get("is_non_document", False)
+            is_full_document_analysis = metadata.get("is_full_document_analysis", False)
             available_file_ids = metadata.get("available_file_ids", [])
             
-            # 如果不需要检索或没有可用文件，直接回答
-            if not needs_retrieval or not available_file_ids:
-                return "rag_response"
+            # 如果是非文档相关问题，直接响应
+            if is_non_document:
+                logger.info("判断为非文档相关问题，进入统一响应流程")
+                return "unified_response"
             
-            # 需要检索且有可用文件，进入检索节点
-            return "retrieve_documents"
+            # 如果没有可用文件，直接生成答案
+            # if not available_file_ids:
+            #     logger.info("没有可用文件，进入统一响应流程")
+            #     return "unified_response"
+            
+            # 如果是全文档分析，直接进入全文档QA节点
+            if is_full_document_analysis:
+                logger.info("判断为全文档分析，进入全文档QA流程")
+                return "full_doc_qa"
+            
+            # 否则进入相似度搜索
+            logger.info("判断为关键词检索，进入相似度搜索流程")
+            return "sim_search"
+        
+        def route_after_sim_search(state: ConversationState) -> str:
+            """相似度搜索后的条件路由 - 判断NoSim"""
+            metadata = state.get("metadata", {})
+            no_sim_results = metadata.get("no_sim_results", False)
+            
+            # 如果没有相似结果，进入全文档QA节点
+            if no_sim_results:
+                logger.info("相似度搜索无结果，转入全文档QA流程")
+                return "full_doc_qa"
+            
+            # 有相似结果，进入统一响应生成
+            logger.info("相似度搜索有结果，进入统一响应生成")
+            return "unified_response"
         
         # 构建图但不编译
         graph_builder = StateGraph(ConversationState)
         
         # 添加节点
-        graph_builder.add_node("analyze_question", analyze_question_node)
-        graph_builder.add_node("retrieve_documents", retrieve_documents_node)
-        graph_builder.add_node("rag_response", rag_response_node)
-        graph_builder.add_node("error_response", error_response_node)
+        graph_builder.add_node("docqa_router", docqa_router_node)
+        graph_builder.add_node("sim_search", sim_search_node)  # 异步节点
+        graph_builder.add_node("full_doc_qa", full_doc_qa_node)
+        graph_builder.add_node("unified_response", unified_response_node)
         
-        # 添加边
-        graph_builder.add_edge(START, "analyze_question")
+        # 添加边和条件路由
+        graph_builder.add_edge(START, "docqa_router")
         
-        # 添加条件路由：分析后决定是否检索
+        # DocQA Router 后的条件路由
         graph_builder.add_conditional_edges(
-            "analyze_question",
-            route_after_analysis,
+            "docqa_router",
+            route_after_router,
             {
-                "retrieve_documents": "retrieve_documents",
-                "rag_response": "rag_response", 
-                "error_response": "error_response"
+                "unified_response": "unified_response",
+                "sim_search": "sim_search", 
+                "full_doc_qa": "full_doc_qa"
             }
         )
         
-        # 检索完成后直接生成回答
-        graph_builder.add_edge("retrieve_documents", "rag_response")
-        graph_builder.add_edge("rag_response", END)
-        graph_builder.add_edge("error_response", END)
+        # 相似度搜索后的条件路由 (判断NoSim)
+        graph_builder.add_conditional_edges(
+            "sim_search",
+            route_after_sim_search,
+            {
+                "full_doc_qa": "full_doc_qa",
+                "unified_response": "unified_response"
+            }
+        )
+        
+        # 全文档QA后进入统一响应
+        graph_builder.add_edge("full_doc_qa", "unified_response")
+        
+        # 统一响应完成
+        graph_builder.add_edge("unified_response", END)
         
         return graph_builder  # 返回未编译的图构建器
     
