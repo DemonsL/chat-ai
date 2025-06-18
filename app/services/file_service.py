@@ -16,9 +16,17 @@ from app.core.exceptions import (FileTooLargeException,
 from app.db.models.user_file import UserFile
 from app.db.repositories.user_file_repository import UserFileRepository
 from app.schemas.file import FileStatus, FileType
-from app.tasks.jobs.file import (analyze_file_task, bulk_upload_task,
-                                 export_file_task, process_file_task)
-from app.llm.rag.file_processor import LLMFileProcessor
+from app.llm.manage import LLMManager
+
+# 导入Celery任务 - 确保在模块级别导入
+try:
+    from app.tasks.jobs.file import (analyze_file_task, bulk_upload_task,
+                                     export_file_task, process_file_task)
+    CELERY_AVAILABLE = True
+    logger.info("Celery任务导入成功")
+except ImportError as e:
+    logger.warning(f"Celery任务导入失败: {str(e)}")
+    CELERY_AVAILABLE = False
 
 
 class FileManagementService:
@@ -43,8 +51,17 @@ class FileManagementService:
         # 确保上传目录存在
         os.makedirs(self.upload_dir, exist_ok=True)
 
-        # 使用LLM层的文件处理器
-        self.llm_file_processor = LLMFileProcessor()
+        # LLM管理器延迟初始化，只在需要时创建
+        self._llm_mgr = None
+
+    @property 
+    def llm_mgr(self):
+        """延迟初始化LLM管理器"""
+        if self._llm_mgr is None:
+            logger.info("初始化LLM管理器用于文件处理")
+            from app.llm.manage import LLMManager
+            self._llm_mgr = LLMManager()
+        return self._llm_mgr
 
     async def upload_file(
         self,
@@ -123,31 +140,63 @@ class FileManagementService:
                 )
         else:
             # 异步处理文件
-            try:
-                # 启动Celery任务处理文件
-                process_file_task.delay(str(file_record.id), str(user_id))
-                logger.info(f"文件 {file_record.id} 异步处理任务已启动")
-            except Exception as e:
-                logger.warning(f"启动异步任务失败，改为同步处理: {str(e)}")
-                # 如果异步任务启动失败，改为同步处理
+            if not CELERY_AVAILABLE:
+                logger.warning("Celery不可用，改为同步处理")
+                # 如果Celery不可用，直接同步处理
                 try:
+                    logger.info(f"开始同步处理文件 {file_record.id}...")
                     await self.process_file(file_record.id, user_id)
-                    logger.info(f"文件 {file_record.id} 同步处理完成（异步失败后的备选）")
+                    logger.info(f"文件 {file_record.id} 同步处理完成（Celery不可用）")
                 except Exception as sync_e:
-                    logger.error(f"文件 {file_record.id} 同步处理也失败: {str(sync_e)}")
-                    # 更新文件状态为错误
+                    logger.error(f"文件 {file_record.id} 同步处理失败: {str(sync_e)}")
                     await self.file_repo.update_status(
                         file_id=file_record.id, 
                         status=FileStatus.ERROR, 
-                        error_message=str(sync_e)
+                        error_message=f"处理失败: {str(sync_e)}"
                     )
+                    raise sync_e
+            else:
+                try:
+                    # 尝试启动Celery任务处理文件
+                    task_result = process_file_task.delay(str(file_record.id), str(user_id))
+                    logger.info(f"文件 {file_record.id} 异步处理任务已启动, 任务ID: {task_result.id}")
+                    
+                    # 可以选择性地等待一小段时间来检查任务是否立即失败
+                    import asyncio
+                    await asyncio.sleep(0.1)  # 等待100ms
+                    
+                    # 检查任务状态
+                    if hasattr(task_result, 'state') and task_result.state == 'FAILURE':
+                        logger.warning(f"异步任务立即失败，改为同步处理: {task_result.info}")
+                        raise Exception(f"Celery任务失败: {task_result.info}")
+                        
+                except Exception as e:
+                    logger.warning(f"启动异步任务失败，改为同步处理: {str(e)}")
+                    # 如果异步任务启动失败，立即改为同步处理
+                    try:
+                        logger.info(f"开始同步处理文件 {file_record.id}...")
+                        await self.process_file(file_record.id, user_id)
+                        logger.info(f"文件 {file_record.id} 同步处理完成（异步失败后的备选）")
+                    except Exception as sync_e:
+                        logger.error(f"文件 {file_record.id} 同步处理也失败: {str(sync_e)}")
+                        # 更新文件状态为错误
+                        await self.file_repo.update_status(
+                            file_id=file_record.id, 
+                            status=FileStatus.ERROR, 
+                            error_message=f"处理失败: {str(sync_e)}"
+                        )
+                        # 重新抛出异常
+                        raise sync_e
 
         # 如果需要，启动文件分析任务
-        if analyze:
+        if analyze and CELERY_AVAILABLE:
             try:
                 analyze_file_task.delay(str(file_record.id))
+                logger.info(f"文件分析任务已启动: {file_record.id}")
             except Exception as e:
                 logger.warning(f"启动分析任务失败: {str(e)}")
+        elif analyze and not CELERY_AVAILABLE:
+            logger.warning("Celery不可用，跳过文件分析任务")
 
         return file_record
 
@@ -229,6 +278,9 @@ class FileManagementService:
         if not valid_files:
             raise NotFoundException(detail="未找到可导出的文件")
 
+        if not CELERY_AVAILABLE:
+            raise FileProcessingException(detail="导出功能需要Celery支持，但Celery当前不可用")
+
         # 启动导出任务
         file_id_strs = [str(file.id) for file in valid_files]
         task = export_file_task.delay(str(user_id), file_id_strs, notify=notify)
@@ -253,6 +305,9 @@ class FileManagementService:
         返回:
             任务信息
         """
+        if not CELERY_AVAILABLE:
+            raise FileProcessingException(detail="批量上传功能需要Celery支持，但Celery当前不可用")
+
         # 启动批量上传任务
         task = bulk_upload_task.delay(str(user_id), file_paths, analyze)
 
@@ -280,6 +335,9 @@ class FileManagementService:
         file = await self.file_repo.get_by_id_for_user(file_id, user_id)
         if not file:
             raise NotFoundException(detail="文件不存在")
+
+        if not CELERY_AVAILABLE:
+            raise FileProcessingException(detail="文件分析功能需要Celery支持，但Celery当前不可用")
 
         # 启动分析任务
         task = analyze_file_task.delay(str(file_id), analysis_type)
@@ -321,24 +379,27 @@ class FileManagementService:
         )
 
         try:
-            # 验证文件类型
-            if not self.llm_file_processor.validate_file_type(file_record.file_type):
-                raise FileProcessingException(detail=f"不支持的文件类型: {file_record.file_type}")
-
             # 使用LLM层处理文件内容，直接生成Document对象
-            document_objects, content_metadata = await self.llm_file_processor.process_file_to_documents(
+            # process_file_to_documents 方法内部已经包含文件类型验证和元数据增强
+            document_objects, content_metadata = await self.llm_mgr.process_file_to_documents(
                 file_path=file_record.storage_path,
                 file_type=file_record.file_type,
-                file_id=str(file_id),
-                user_id=str(user_id),
-                file_name=file_record.original_filename,
                 chunk_size=1000,
-                chunk_overlap=200
+                chunk_overlap=200,
+                user_id=str(user_id),
+                file_id=str(file_id),
+                file_name=file_record.original_filename
             )
 
-            # 添加到向量存储（使用Document对象）
-            success = await self.llm_file_processor.add_documents_to_vector_store(
-                documents=document_objects
+            if not document_objects:
+                raise FileProcessingException(detail="无法从文件中提取内容或文件类型不支持")
+
+            # 添加文档到向量存储，并传递必要的隔离信息
+            success = await self.llm_mgr.retrieval_service.add_documents(
+                documents=document_objects,
+                user_id=str(user_id),
+                file_id=str(file_id),
+                conversation_id=None  # 文件级别的文档不绑定特定对话
             )
 
             if not success:
@@ -373,160 +434,3 @@ class FileManagementService:
             
             logger.error(f"文件 {file_id} 处理失败，用户 {user_id}: {str(e)}")
             raise FileProcessingException(detail=f"文件处理失败: {str(e)}")
-
-    async def remove_file_from_index(self, file_id: UUID, user_id: UUID) -> bool:
-        """
-        从向量索引中移除文件
-        
-        Args:
-            file_id: 文件ID
-            user_id: 用户ID
-            
-        Returns:
-            是否成功移除
-        """
-        try:
-            # 验证文件访问权限
-            file_record = await self.file_repo.get_by_id_for_user(file_id, user_id)
-            if not file_record:
-                logger.warning(f"用户 {user_id} 尝试删除不存在或无权限的文件 {file_id}")
-                return False
-
-            # 从向量存储中删除
-            success = await self.llm_file_processor.remove_from_vector_store(str(file_id))
-
-            if success:
-                logger.info(f"成功从向量存储删除文件 {file_id}，用户 {user_id}")
-            else:
-                logger.warning(f"从向量存储删除文件 {file_id} 失败，用户 {user_id}")
-
-            return success
-
-        except Exception as e:
-            logger.error(f"删除文件索引失败，文件 {file_id}，用户 {user_id}: {str(e)}")
-            raise FileProcessingException(detail=f"删除文件索引失败: {str(e)}")
-
-    async def reprocess_file(self, file_id: UUID, user_id: UUID) -> Dict:
-        """
-        重新处理文件
-        
-        Args:
-            file_id: 文件ID
-            user_id: 用户ID
-            
-        Returns:
-            处理结果信息
-        """
-        try:
-            # 先从向量存储中删除旧数据
-            await self.remove_file_from_index(file_id, user_id)
-            
-            # 重新处理文件
-            result = await self.process_file(file_id, user_id)
-            
-            logger.info(f"文件 {file_id} 重新处理成功，用户 {user_id}")
-            return result
-            
-        except Exception as e:
-            logger.error(f"文件 {file_id} 重新处理失败，用户 {user_id}: {str(e)}")
-            raise
-
-    async def get_file_processing_status(self, file_id: UUID, user_id: UUID) -> Dict:
-        """
-        获取文件处理状态
-        
-        Args:
-            file_id: 文件ID
-            user_id: 用户ID
-            
-        Returns:
-            文件状态信息
-        """
-        file_record = await self.file_repo.get_by_id_for_user(file_id, user_id)
-        if not file_record:
-            raise FileProcessingException(detail="文件不存在或无权限访问")
-
-        return {
-            "file_id": str(file_id),
-            "status": file_record.status,
-            "file_metadata": file_record.file_metadata,
-            "created_at": file_record.created_at.isoformat() if file_record.created_at else None,
-            "updated_at": file_record.updated_at.isoformat() if file_record.updated_at else None,
-        }
-
-    async def batch_process_files(self, file_ids: List[UUID], user_id: UUID) -> Dict:
-        """
-        批量处理文件
-        
-        Args:
-            file_ids: 文件ID列表
-            user_id: 用户ID
-            
-        Returns:
-            批量处理结果
-        """
-        results = []
-        successful = 0
-        failed = 0
-
-        for file_id in file_ids:
-            try:
-                result = await self.process_file(file_id, user_id)
-                results.append({
-                    "file_id": str(file_id),
-                    "success": True,
-                    "result": result
-                })
-                successful += 1
-            except Exception as e:
-                results.append({
-                    "file_id": str(file_id),
-                    "success": False,
-                    "error": str(e)
-                })
-                failed += 1
-
-        logger.info(f"批量处理完成，用户 {user_id}: 成功 {successful}, 失败 {failed}")
-
-        return {
-            "total": len(file_ids),
-            "successful": successful,
-            "failed": failed,
-            "results": results
-        }
-
-    def get_supported_file_types(self) -> List[str]:
-        """
-        获取支持的文件类型
-        
-        Returns:
-            支持的文件类型列表
-        """
-        return self.llm_file_processor.get_supported_file_types()
-
-    async def validate_file_for_processing(self, file_id: UUID, user_id: UUID) -> bool:
-        """
-        验证文件是否可以处理
-        
-        Args:
-            file_id: 文件ID
-            user_id: 用户ID
-            
-        Returns:
-            是否可以处理
-        """
-        try:
-            file_record = await self.file_repo.get_by_id_for_user(file_id, user_id)
-            if not file_record:
-                return False
-
-            # 检查文件是否存在
-            if not os.path.exists(file_record.storage_path):
-                return False
-
-            # 检查文件类型是否支持
-            return self.llm_file_processor.validate_file_type(file_record.file_type)
-
-        except Exception as e:
-            logger.error(f"验证文件 {file_id} 失败: {str(e)}")
-            return False

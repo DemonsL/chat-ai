@@ -57,7 +57,7 @@ class Settings(BaseSettings):
 
     # Vector 数据库配置
     VECTOR_DB_TYPE: str = "chroma"
-    CHROMA_DB_DIR: str = "./chroma_db"
+    CHROMA_DB_DIR: str = "data/chroma_db"
     PINECONE_API_KEY: Optional[str] = None
     PINECONE_ENVIRONMENT: Optional[str] = None
     PINECONE_INDEX_NAME: Optional[str] = None
@@ -96,6 +96,19 @@ class Settings(BaseSettings):
     POSTGRES_MAX_OVERFLOW: int = 10
     CHECKPOINT_TABLES: List[str] = ["checkpoint_blobs", "checkpoint_writes", "checkpoints"]
 
+    # 文档检索安全配置
+    ENABLE_DOCUMENT_ISOLATION: bool = True  # 是否启用文档隔离
+    ISOLATION_STRATEGY: str = "metadata_filter"  # 隔离策略: metadata_filter, multi_tenant, namespace
+    STRICT_USER_ISOLATION: bool = True  # 是否严格验证用户隔离
+    ENABLE_CROSS_USER_ACCESS_LOG: bool = True  # 是否记录跨用户访问日志
+    MAX_DOCUMENTS_PER_USER: int = 10000  # 每个用户最大文档数
+    MAX_DOCUMENTS_PER_CONVERSATION: int = 1000  # 每个对话最大文档数
+    
+    # 检索性能配置
+    DEFAULT_SIMILARITY_THRESHOLD: float = 0.3  # 默认相似度阈值
+    MAX_RETRIEVAL_RESULTS: int = 50  # 最大检索结果数
+    ENABLE_RETRIEVAL_CACHE: bool = True  # 是否启用检索缓存
+    CACHE_TTL_SECONDS: int = 300  # 缓存过期时间（秒）
 
     class Config:
         env_file = ".env"

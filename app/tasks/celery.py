@@ -37,6 +37,9 @@ celery_app.conf.update(
     task_default_routing_key="default",
     # 任务路由
     task_routes={
+        "tasks.file.*": {"queue": "file_tasks"},
+        "tasks.email.*": {"queue": "email_tasks"},
+        "tasks.api.*": {"queue": "api_calls"},
         "app.tasks.jobs.file.*": {"queue": "file_tasks"},
         "app.tasks.jobs.email.*": {"queue": "email_tasks"},
         "app.tasks.jobs.inventory.*": {"queue": "inventory"},

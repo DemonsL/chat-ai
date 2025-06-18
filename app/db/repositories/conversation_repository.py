@@ -68,13 +68,19 @@ class ConversationRepository(
         """
         更新会话关联的文件
         """
+        from app.db.models.user_file import UserFile
+        
         # 清空当前关联
         conversation.files = []
 
         if file_ids:
-            # 如需实现，此处应查询相应的UserFile对象并添加到conversation.files
-            # 为简化起见，现在假设已经在服务层处理了文件的存在性验证
-            pass
+            # 查询相应的UserFile对象并添加到conversation.files
+            query = select(UserFile).where(UserFile.id.in_(file_ids))
+            result = await self.db.execute(query)
+            files = result.scalars().all()
+            
+            # 添加文件关联
+            conversation.files = files
 
         self.db.add(conversation)
         await self.db.commit()

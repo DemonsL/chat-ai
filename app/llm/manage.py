@@ -1,5 +1,5 @@
 import json
-from typing import AsyncGenerator, Dict, List, Optional, Any, Annotated, Literal
+from typing import AsyncGenerator, Dict, List, Optional, Any, Annotated, Literal, Tuple
 from uuid import UUID
 from enum import Enum
 from loguru import logger
@@ -23,6 +23,12 @@ from app.llm.core.base import (
 from app.llm.core.prompts import prompt_manager
 from app.llm.core.checkpointer import get_checkpointer, get_conversation_config
 from app.llm.rag.retrieval_service import LLMRetrievalService
+from app.llm.rag.file_processor import LLMFileProcessor
+
+
+from app.core.exceptions import (FileProcessingException,
+                                 InvalidFileTypeException)
+from langchain_core.documents import Document
 
 
 class ConversationMode(str, Enum):
@@ -76,10 +82,11 @@ class LLMManager:
     使用状态图管理多轮对话流程，支持 PostgresSaver checkpointer
     """
     
-    def __init__(self, retrieval_service=None):
+    def __init__(self):
         self._model_cache = {}  # 缓存已创建的模型实例
         self._graphs = {}  # 缓存不同模式的图
         self.retrieval_service = LLMRetrievalService()  # 检索服务依赖
+        self.file_mgr = LLMFileProcessor()
         
     def _get_model(self, model_config: Dict[str, Any]) -> BaseChatModel:
         """获取或创建模型实例（带缓存）"""
@@ -267,6 +274,30 @@ class LLMManager:
                     }
                 }
             
+            # 权限验证：确保必要的安全参数存在
+            user_id = metadata.get("user_id")
+            if not user_id:
+                logger.error("相似度搜索：缺少用户ID，存在安全风险")
+                no_sim_results = True
+                retrieval_info = {
+                    "method": "langchain_similarity_search",
+                    "status": "权限验证失败：缺少用户ID",
+                    "query": user_query,
+                    "no_sim_results": True,
+                    "security_error": True
+                }
+                
+                return {
+                    "retrieved_documents": retrieved_docs,
+                    "metadata": {
+                        **state.get("metadata", {}),
+                        "sim_search_completed": True,
+                        "no_sim_results": no_sim_results,
+                        "retrieval_info": retrieval_info,
+                        "document_count": 0
+                    }
+                }
+            
             try:
                 # 第一步：使用模型优化查询
                 query_optimization_prompt = ChatPromptTemplate.from_messages([
@@ -294,9 +325,22 @@ class LLMManager:
                 logger.info(f"查询优化完成: '{user_query}' -> '{optimized_query}'")
                 
                 # 第二步：使用检索服务进行相似度搜索
+                # 从元数据中获取用户和文件信息
+                available_file_ids = metadata.get("available_file_ids", [])
+                conversation_id = state.get("conversation_id")
+                
+                # 验证文件权限：确保用户有权访问指定的文件
+                if available_file_ids:
+                    logger.info(f"权限验证：用户 {user_id} 尝试访问文件 {available_file_ids}")
+                    # 这里可以添加额外的权限检查逻辑
+                    # 例如：查询数据库验证用户对这些文件的访问权限
+                
                 search_results = await self.retrieval_service.similarity_search_with_score(
                     query=optimized_query,
-                    k=5
+                    k=5,
+                    user_id=user_id,
+                    file_ids=available_file_ids if available_file_ids else None,
+                    conversation_id=conversation_id
                 )
                 
                 # 处理检索结果
@@ -310,18 +354,39 @@ class LLMManager:
                     retrieved_docs = [doc.page_content for doc, score in filtered_results]
                     scores = [score for doc, score in filtered_results]
                     
-                    retrieval_info = {
-                        "method": "langchain_similarity_search",
-                        "original_query": user_query,
-                        "optimized_query": optimized_query,
-                        "document_count": len(retrieved_docs),
-                        "similarity_scores": scores,
-                        "similarity_threshold": similarity_threshold,
-                        "total_candidates": len(search_results),
-                        "status": "相似度搜索成功"
-                    }
+                    # 安全检查：验证返回的文档确实属于当前用户
+                    security_validated = True
+                    for doc, _ in filtered_results:
+                        doc_user_id = doc.metadata.get("user_id")
+                        if doc_user_id and doc_user_id != user_id:
+                            logger.error(f"安全警告：检索到其他用户的文档！doc_user_id={doc_user_id}, current_user_id={user_id}")
+                            security_validated = False
+                            break
                     
-                    logger.info(f"相似度搜索成功: 找到 {len(retrieved_docs)} 个相关文档片段")
+                    if not security_validated:
+                        # 发现安全问题，清空结果
+                        retrieved_docs = []
+                        no_sim_results = True
+                        retrieval_info = {
+                            "method": "langchain_similarity_search",
+                            "status": "安全验证失败：检测到跨用户访问",
+                            "security_error": True,
+                            "no_sim_results": True
+                        }
+                    else:
+                        retrieval_info = {
+                            "method": "langchain_similarity_search",
+                            "original_query": user_query,
+                            "optimized_query": optimized_query,
+                            "document_count": len(retrieved_docs),
+                            "similarity_scores": scores,
+                            "similarity_threshold": similarity_threshold,
+                            "total_candidates": len(search_results),
+                            "status": "相似度搜索成功",
+                            "security_validated": True
+                        }
+                        
+                        logger.info(f"相似度搜索成功: 找到 {len(retrieved_docs)} 个相关文档片段")
                     
                 else:
                     # 没有满足阈值的结果
@@ -387,9 +452,17 @@ class LLMManager:
                     logger.info("开始全文档内容获取")
                     
                     # 使用更大的k值和更低的阈值获取更多文档内容
+                    # 从元数据中获取用户和文件信息
+                    user_id = metadata.get("user_id")
+                    available_file_ids = metadata.get("available_file_ids", [])
+                    conversation_id = state.get("conversation_id")
+                    
                     search_results = await self.retrieval_service.similarity_search_with_score(
                         query=user_query,
-                        k=20  # 获取更多文档片段
+                        k=20,  # 获取更多文档片段
+                        user_id=user_id,
+                        file_ids=available_file_ids if available_file_ids else None,
+                        conversation_id=conversation_id
                     )
                     
                     # 对于全文档分析，我们使用更宽松的阈值
@@ -475,6 +548,8 @@ class LLMManager:
             processing_type = metadata.get("processing_type", "知识检索")
             
             # 根据问题类型构建不同的提示词
+            available_file_ids = metadata.get("available_file_ids", [])
+            
             if is_non_document:
                 # 非文档相关问题 - 直接对话
                 response_prompt = ChatPromptTemplate.from_messages([
@@ -487,6 +562,21 @@ class LLMManager:
 - 闲聊对话：自然互动
 
 请保持回答简洁、准确、友好。"""),
+                    ("placeholder", "{messages}")
+                ])
+                context_instruction = None
+                
+            elif not available_file_ids and not retrieved_docs:
+                # 没有可用文件且问题是文档相关的
+                response_prompt = ChatPromptTemplate.from_messages([
+                    ("system", """你是一个智能文档助手。用户提出了与文档相关的问题，但当前对话中没有可用的文档。
+
+请友好地提醒用户：
+1. 需要先上传相关文档才能进行文档分析
+2. 支持的文件格式包括：PDF、DOCX、TXT等
+3. 上传文档后，您就可以帮助用户分析、总结和回答文档相关的问题
+
+请用温和、有帮助的语气回应。"""),
                     ("placeholder", "{messages}")
                 ])
                 context_instruction = None
@@ -602,15 +692,18 @@ class LLMManager:
             is_full_document_analysis = metadata.get("is_full_document_analysis", False)
             available_file_ids = metadata.get("available_file_ids", [])
             
+            # 添加调试日志
+            logger.info(f"路由决策: is_non_document={is_non_document}, is_full_document_analysis={is_full_document_analysis}, available_file_ids={available_file_ids}")
+            
             # 如果是非文档相关问题，直接响应
             if is_non_document:
                 logger.info("判断为非文档相关问题，进入统一响应流程")
                 return "unified_response"
             
-            # 如果没有可用文件，直接生成答案
-            # if not available_file_ids:
-            #     logger.info("没有可用文件，进入统一响应流程")
-            #     return "unified_response"
+            # 如果没有可用文件，直接生成答案（提醒用户上传文件）
+            if not available_file_ids:
+                logger.info("没有可用文件，进入统一响应流程")
+                return "unified_response"
             
             # 如果是全文档分析，直接进入全文档QA节点
             if is_full_document_analysis:
@@ -1771,3 +1864,104 @@ class LLMManager:
             "max_tokens": model_config.get("max_tokens", 4000),
             "available_tokens": max(0, model_config.get("max_tokens", 4000) - token_count),
         } 
+    
+    
+    async def process_file_to_documents(
+        self, 
+        file_path: str, 
+        file_type: str,
+        chunk_size: Optional[int] = None,
+        chunk_overlap: Optional[int] = None,
+        user_id: Optional[str] = None,
+        file_id: Optional[str] = None,
+        file_name: Optional[str] = None
+    ) -> Tuple[List[Document], Dict]:
+        """
+        处理文件内容并返回分割后的Document对象列表
+        
+        Args:
+            file_path: 文件路径
+            file_type: 文件类型
+            chunk_size: 分块大小
+            chunk_overlap: 分块重叠
+            user_id: 用户ID（用于元数据）
+            file_id: 文件ID（用于元数据）
+            file_name: 原始文件名（用于元数据）
+            
+        Returns:
+            (分割后的Document对象列表, 文件元数据)
+        """
+        try:
+            # 验证文件类型
+            if not self.file_mgr.validate_file_type(file_type):
+                raise FileProcessingException(detail=f"不支持的文件类型: {file_type}")
+            
+            # 加载文档
+            documents = await self.file_mgr.load_documents(file_path, file_type)
+            
+            if not documents:
+                raise FileProcessingException(detail="无法从文件中提取内容")
+            
+            # 收集原始文档元数据
+            metadata = self.file_mgr.collect_metadata(documents, file_type)
+            
+            # 分割文档
+            split_documents = self.file_mgr.split_documents(documents, chunk_size, chunk_overlap)
+            
+            # 为每个分割的文档添加隔离和追踪元数据
+            enhanced_documents = []
+            for i, doc in enumerate(split_documents):
+                enhanced_metadata = {
+                    **doc.metadata,
+                    "chunk_index": i,
+                    "total_chunks": len(split_documents),
+                }
+                
+                # 添加隔离相关的元数据
+                if user_id:
+                    enhanced_metadata["user_id"] = user_id
+                if file_id:
+                    enhanced_metadata["file_id"] = file_id
+                if file_name:
+                    enhanced_metadata["original_filename"] = file_name
+                    enhanced_metadata["source"] = file_name
+                
+                # 添加处理时间戳
+                import datetime
+                enhanced_metadata["processed_at"] = datetime.datetime.now().isoformat()
+                enhanced_metadata["file_type"] = file_type
+                
+                # 过滤复杂的元数据类型，只保留向量数据库支持的基础类型
+                filtered_metadata = {
+                    k: v for k, v in enhanced_metadata.items() 
+                    if isinstance(v, (str, bool, int, float)) and v is not None
+                }
+                
+                enhanced_doc = Document(
+                    page_content=doc.page_content,
+                    metadata=filtered_metadata
+                )
+                enhanced_documents.append(enhanced_doc)
+            
+            # 计算统计信息
+            total_content = "\n\n".join([doc.page_content for doc in documents])
+            metadata.update({
+                "original_document_count": len(documents),
+                "split_document_count": len(split_documents),
+                "total_character_count": len(total_content),
+                "chunk_size": chunk_size or getattr(self, 'default_chunk_size', 1000),
+                "chunk_overlap": chunk_overlap or getattr(self, 'default_chunk_overlap', 200),
+                "user_id": user_id,
+                "file_id": file_id,
+                "file_name": file_name,
+                "file_type": file_type
+            })
+            
+            logger.info(f"文件处理成功: {file_name or file_path}, 分割为 {len(enhanced_documents)} 个文档块")
+            
+            return enhanced_documents, metadata
+            
+        except Exception as e:
+            logger.error(f"文件处理失败: {str(e)}")
+            raise FileProcessingException(detail=f"文件处理失败: {str(e)}")
+    
