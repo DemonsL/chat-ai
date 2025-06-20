@@ -14,6 +14,7 @@ class ModelProvider(str, Enum):
 
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
+    GOOGLE = "google_genai"
     DEEPSEEK = "deepseek"
     OTHER = "other"
 

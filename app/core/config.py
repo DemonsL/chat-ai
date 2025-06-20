@@ -67,6 +67,10 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: Optional[str] = None
     DEEPSEEK_API_KEY: Optional[str] = None
 
+    GOOGLE_API_KEY: Optional[str] = None
+    GOOGLE_EMBEDDING_MODEL: str = "models/text-embedding-004"
+    OPENAI_GOOGLE_BASE_URL: str = "https://generativelanguage.googleapis.com/v1beta/openai"
+
     # Qwen/DashScope 配置
     QWEN_API_KEY: Optional[str] = None
     DASHSCOPE_API_KEY: Optional[str] = None  # 阿里云灵积API密钥（与QWEN_API_KEY相同）
@@ -77,7 +81,7 @@ class Settings(BaseSettings):
     MAX_UPLOAD_SIZE: int = 20 * 1024 * 1024  # 20MB
 
     # 嵌入模型配置
-    EMBEDDING_PROVIDER: str = "openai"  # 支持 'openai', 'qwen'
+    EMBEDDING_PROVIDER: str = "google_genai"  # 支持 'openai', 'qwen'
     EMBEDDING_MODEL: str = "text-embedding-3-small"  # OpenAI 嵌入模型
     QWEN_EMBEDDING_MODEL: str = "text-embedding-v1"  # Qwen 嵌入模型
 

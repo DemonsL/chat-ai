@@ -39,14 +39,12 @@ celery_app.conf.update(
     task_routes={
         "tasks.file.*": {"queue": "file_tasks"},
         "tasks.email.*": {"queue": "email_tasks"},
+        "tasks.inventory.*": {"queue": "inventory"},
+        "tasks.credits.*": {"queue": "credits"},
+        "tasks.export.*": {"queue": "export"},
         "tasks.api.*": {"queue": "api_calls"},
-        "app.tasks.jobs.file.*": {"queue": "file_tasks"},
-        "app.tasks.jobs.email.*": {"queue": "email_tasks"},
-        "app.tasks.jobs.inventory.*": {"queue": "inventory"},
-        "app.tasks.jobs.credits.*": {"queue": "credits"},
-        "app.tasks.jobs.export.*": {"queue": "export"},
-        "app.tasks.jobs.api.*": {"queue": "api_calls"},
-        "app.tasks.jobs.scripts.*": {"queue": "default"},
+        "tasks.scripts.*": {"queue": "default"},
+        "tasks.stats.*": {"queue": "scheduled"},
     },
     # 任务执行设置
     task_serializer="json",
@@ -105,3 +103,17 @@ celery_app.conf.beat_schedule = beat_schedule
 
 # 导入任务模块，使任务对Celery可见
 celery_app.autodiscover_tasks(["app.tasks.jobs"])
+
+# 强制导入所有任务模块以确保任务注册
+try:
+    # 导入所有任务模块，确保装饰器被执行
+    from app.tasks.jobs import file, email, api, scripts, stats, inventory, credits
+    print("所有任务模块导入成功")
+except ImportError as e:
+    print(f"部分任务模块导入失败: {e}")
+
+# 添加一个简单的测试任务
+@celery_app.task
+def test_celery_connection():
+    """测试Celery连接的简单任务"""
+    return {"status": "success", "message": "Celery连接正常"}

@@ -20,10 +20,20 @@ from app.llm.manage import LLMManager
 
 # 导入Celery任务 - 确保在模块级别导入
 try:
+    # 先导入Celery应用以确保任务注册
+    from app.tasks.celery import celery_app
+    # 然后导入具体任务
     from app.tasks.jobs.file import (analyze_file_task, bulk_upload_task,
                                      export_file_task, process_file_task)
     CELERY_AVAILABLE = True
     logger.info("Celery任务导入成功")
+    
+    # 验证关键任务是否已注册
+    if "tasks.file.process_file" in celery_app.tasks:
+        logger.info("文件处理任务已正确注册")
+    else:
+        logger.warning("文件处理任务未找到，可能影响异步处理")
+        
 except ImportError as e:
     logger.warning(f"Celery任务导入失败: {str(e)}")
     CELERY_AVAILABLE = False
@@ -156,19 +166,37 @@ class FileManagementService:
                     )
                     raise sync_e
             else:
+                # 测试Celery连接
+                try:
+                    from app.tasks.celery import celery_app
+                    test_result = celery_app.send_task('test_celery_connection')
+                    logger.info(f"Celery连接测试任务ID: {test_result.id}")
+                except Exception as test_e:
+                    logger.error(f"Celery连接测试失败: {str(test_e)}")
+                
                 try:
                     # 尝试启动Celery任务处理文件
+                    logger.info(f"准备启动异步任务处理文件 {file_record.id}")
                     task_result = process_file_task.delay(str(file_record.id), str(user_id))
                     logger.info(f"文件 {file_record.id} 异步处理任务已启动, 任务ID: {task_result.id}")
                     
-                    # 可以选择性地等待一小段时间来检查任务是否立即失败
+                    # 等待任务状态更新
                     import asyncio
-                    await asyncio.sleep(0.1)  # 等待100ms
+                    await asyncio.sleep(0.2)  # 等待200ms让任务有时间启动
                     
-                    # 检查任务状态
-                    if hasattr(task_result, 'state') and task_result.state == 'FAILURE':
-                        logger.warning(f"异步任务立即失败，改为同步处理: {task_result.info}")
-                        raise Exception(f"Celery任务失败: {task_result.info}")
+                    # 检查任务是否成功启动
+                    try:
+                        task_state = task_result.state
+                        logger.info(f"任务状态: {task_state}")
+                        if task_state == 'FAILURE':
+                            error_info = getattr(task_result, 'info', task_result.result)
+                            logger.warning(f"异步任务立即失败，改为同步处理: {error_info}")
+                            raise Exception(f"Celery任务失败: {error_info}")
+                        elif task_state in ['PENDING', 'STARTED', 'SUCCESS']:
+                            logger.info(f"异步任务启动成功，状态: {task_state}")
+                    except AttributeError as attr_error:
+                        logger.info(f"无法检查任务状态属性，任务可能已启动: {str(attr_error)}")
+                        # 如果无法检查状态，可能是任务已经成功启动，继续执行
                         
                 except Exception as e:
                     logger.warning(f"启动异步任务失败，改为同步处理: {str(e)}")
@@ -191,8 +219,8 @@ class FileManagementService:
         # 如果需要，启动文件分析任务
         if analyze and CELERY_AVAILABLE:
             try:
-                analyze_file_task.delay(str(file_record.id))
-                logger.info(f"文件分析任务已启动: {file_record.id}")
+                analyze_task_result = analyze_file_task.delay(str(file_record.id))
+                logger.info(f"文件分析任务已启动: {file_record.id}, 任务ID: {analyze_task_result.id}")
             except Exception as e:
                 logger.warning(f"启动分析任务失败: {str(e)}")
         elif analyze and not CELERY_AVAILABLE:
@@ -356,6 +384,100 @@ class FileManagementService:
 
         file_ext = Path(filename).suffix.lower()
         return self.ALLOWED_EXTENSIONS.get(file_ext)
+
+    async def process_file_with_fallback(self, file_id: UUID, user_id: UUID) -> Dict:
+        """
+        使用降级嵌入服务处理文件
+        当主要嵌入服务不可用时使用此方法
+        
+        Args:
+            file_id: 文件ID
+            user_id: 用户ID
+            
+        Returns:
+            处理结果信息
+        """
+        # 验证用户权限并获取文件信息
+        file_record = await self.file_repo.get_by_id_for_user(file_id, user_id)
+        if not file_record:
+            raise FileProcessingException(detail="文件不存在或无权限访问")
+
+        # 更新文件状态为处理中
+        await self.file_repo.update_status(
+            file_id=file_id, status=FileStatus.PROCESSING
+        )
+
+        try:
+            # 创建一个使用OpenAI作为备用嵌入服务的LLM管理器
+            from app.llm.rag.retrieval_service import LLMRetrievalService
+            
+            logger.info("使用OpenAI作为降级嵌入服务处理文件")
+            
+            # 创建备用检索服务（强制使用OpenAI）
+            fallback_retrieval = LLMRetrievalService()
+            fallback_retrieval.embedding_provider = 'openai'
+            fallback_retrieval.embeddings = fallback_retrieval._fallback_to_openai()
+            fallback_retrieval._initialize_vector_store()
+            
+            if not fallback_retrieval.is_ready:
+                raise FileProcessingException(detail="降级嵌入服务初始化失败")
+            
+            # 使用文件管理器处理文件内容
+            document_objects, content_metadata = await self.llm_mgr.process_file_to_documents(
+                file_path=file_record.storage_path,
+                file_type=file_record.file_type,
+                chunk_size=1000,
+                chunk_overlap=200,
+                user_id=str(user_id),
+                file_id=str(file_id),
+                file_name=file_record.original_filename
+            )
+
+            if not document_objects:
+                raise FileProcessingException(detail="无法从文件中提取内容或文件类型不支持")
+
+            # 使用降级检索服务添加文档
+            success = await fallback_retrieval.add_documents(
+                documents=document_objects,
+                user_id=str(user_id),
+                file_id=str(file_id),
+                conversation_id=None
+            )
+
+            if not success:
+                raise FileProcessingException(detail="降级向量索引创建失败")
+
+            # 更新文件状态为已索引
+            processing_metadata = {
+                "chunk_count": len(document_objects),
+                "character_count": content_metadata.get("character_count", 0),
+                "processing_timestamp": content_metadata,
+                "embedding_provider": "openai_fallback",  # 标记使用了降级服务
+                **content_metadata
+            }
+
+            await self.file_repo.update(
+                db_obj=file_record,
+                obj_in={"status": FileStatus.INDEXED, "file_metadata": processing_metadata},
+            )
+
+            logger.info(f"文件 {file_id} 降级处理成功，用户 {user_id}")
+
+            return {
+                "status": "success",
+                "file_id": str(file_id),
+                "metadata": processing_metadata,
+                "note": "使用降级嵌入服务处理"
+            }
+
+        except Exception as e:
+            # 更新文件状态为错误
+            await self.file_repo.update_status(
+                file_id=file_id, status=FileStatus.ERROR, error_message=f"降级处理失败: {str(e)}"
+            )
+            
+            logger.error(f"文件 {file_id} 降级处理失败，用户 {user_id}: {str(e)}")
+            raise FileProcessingException(detail=f"文件降级处理失败: {str(e)}")
 
     async def process_file(self, file_id: UUID, user_id: UUID) -> Dict:
         """

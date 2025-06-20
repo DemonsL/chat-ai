@@ -12,7 +12,7 @@ class ModelConfig(Base):
     model_id = Column(String, unique=True, index=True, nullable=False)
     display_name = Column(String, nullable=False)
     provider = Column(
-        Enum("openai", "anthropic", "deepseek", "other", name="model_provider"),
+        Enum("openai", "anthropic", "google_genai", "deepseek", "other", name="model_provider"),
         nullable=False,
     )
     capabilities = Column(JSONB, nullable=False)  # ["chat", "rag", "agent"]

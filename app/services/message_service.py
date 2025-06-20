@@ -90,13 +90,16 @@ class MessageService:
                     extra_params["api_key"] = os.getenv("OPENAI_API_KEY")
                 elif model_config.provider == "anthropic":
                     extra_params["api_key"] = os.getenv("ANTHROPIC_API_KEY")
-                elif model_config.provider == "google-genai":
+                elif model_config.provider == "google_genai":
                     extra_params["google_api_key"] = os.getenv("GOOGLE_API_KEY")
                 elif model_config.provider == "deepseek":
                     extra_params["api_key"] = os.getenv("DEEPSEEK_API_KEY")
             
+            # 直接使用provider，因为已经是google_genai格式
+            langchain_provider = model_config.provider
+            
             model_config_dict = {
-                "provider": model_config.provider,
+                "provider": langchain_provider,
                 "model_id": model_config.model_id,
                 "max_tokens": model_config.max_tokens,
                 "temperature": model_config.config.get("temperature") if model_config.config else 0.7,

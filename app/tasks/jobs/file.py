@@ -16,8 +16,9 @@ from app.tasks.jobs.email import send_email_task
     queue="file_tasks",
     max_retries=3,
     retry_backoff=True,
+    bind=False,
 )
-async def process_file_task(self, file_id: str, user_id: str):
+async def process_file_task(file_id: str, user_id: str):
     """
     处理文件任务
 
@@ -28,6 +29,8 @@ async def process_file_task(self, file_id: str, user_id: str):
     返回:
         处理结果信息
     """
+    logger.info(f"开始处理文件任务: file_id={file_id}, user_id={user_id}")
+    
     from app.db.repositories.user_file_repository import UserFileRepository
     from app.services.file_service import FileManagementService
 
@@ -44,13 +47,51 @@ async def process_file_task(self, file_id: str, user_id: str):
             return result
 
         except Exception as e:
-            # 记录错误
-            logger.error(f"文件处理失败: {str(e)}")
-            raise e
+            error_msg = str(e)
+            logger.error(f"文件处理失败: {error_msg}")
+            
+            # 检查是否是网络连接错误
+            network_errors = [
+                "503 failed to connect",
+                "timeout",
+                "connection timeout", 
+                "handshaker shutdown",
+                "network error",
+                "connection refused",
+                "dns resolution failed"
+            ]
+            
+            is_network_error = any(err_pattern.lower() in error_msg.lower() for err_pattern in network_errors)
+            
+            if is_network_error:
+                logger.warning(f"检测到网络连接错误，尝试降级处理: {error_msg}")
+                
+                # 尝试使用备用嵌入服务重新处理
+                try:
+                    result = await file_service.process_file_with_fallback(file_id_uuid, user_id_uuid)
+                    logger.info(f"文件降级处理成功: {result}")
+                    return result
+                except Exception as fallback_e:
+                    logger.error(f"文件降级处理也失败: {str(fallback_e)}")
+                    # 更新文件状态为错误，并记录详细错误信息
+                    await file_service.file_repo.update_status(
+                        file_id=file_id_uuid, 
+                        status=FileStatus.ERROR, 
+                        error_message=f"网络错误且降级处理失败: {str(fallback_e)}"
+                    )
+                    raise fallback_e
+            else:
+                # 非网络错误，直接抛出
+                raise e
 
 
-@async_task(name="tasks.file.analyze_file", queue="file_tasks", max_retries=2)
-async def analyze_file_task(self, file_id: str, analysis_type: str = "basic"):
+@async_task(
+    name="tasks.file.analyze_file",
+    queue="file_tasks",
+    max_retries=2,
+    bind=False,
+)
+async def analyze_file_task(file_id: str, analysis_type: str = "basic"):
     """
     分析文件内容任务
 
@@ -62,7 +103,6 @@ async def analyze_file_task(self, file_id: str, analysis_type: str = "basic"):
         分析结果
     """
     from datetime import datetime
-
     from app.db.repositories.user_file_repository import UserFileRepository
 
     async for session in get_async_db_session():
@@ -98,9 +138,12 @@ async def analyze_file_task(self, file_id: str, analysis_type: str = "basic"):
         return result
 
 
-@async_task(name="tasks.file.export_file", queue="export")
+@async_task(
+    name="tasks.file.export_file",
+    queue="export",
+    bind=False,
+)
 async def export_file_task(
-    self,
     user_id: str,
     file_ids: List[str],
     export_format: str = "zip",
@@ -186,9 +229,13 @@ async def export_file_task(
         }
 
 
-@async_task(name="tasks.file.bulk_upload", queue="file_tasks")
+@async_task(
+    name="tasks.file.bulk_upload",
+    queue="file_tasks",
+    bind=False,
+)
 async def bulk_upload_task(
-    self, user_id: str, file_paths: List[str], analyze: bool = False
+    user_id: str, file_paths: List[str], analyze: bool = False
 ):
     """
     批量上传处理本地文件

@@ -6,6 +6,7 @@ from langchain.embeddings.base import Embeddings
 from langchain_chroma import Chroma
 
 from langchain_openai import OpenAIEmbeddings
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from loguru import logger
 
 from app.core.config import settings
@@ -18,9 +19,9 @@ class LLMRetrievalService:
     支持多种嵌入模型提供商：OpenAI、Qwen等
     """
     
-    def __init__(self, embedding_provider: str = None):
+    def __init__(self):
         # 确定使用的嵌入模型提供商
-        self.embedding_provider = embedding_provider or getattr(settings, 'EMBEDDING_PROVIDER', 'openai')
+        self.embedding_provider = getattr(settings, 'EMBEDDING_PROVIDER', 'openai')
         
         # 初始化嵌入模型
         self.embeddings = self._initialize_embedding_model()
@@ -48,6 +49,38 @@ class LLMRetrievalService:
                     model=getattr(settings, 'EMBEDDING_MODEL', 'text-embedding-3-small'),
                     openai_api_key=settings.OPENAI_API_KEY
                 )
+            elif self.embedding_provider.lower() == 'google_genai':
+                logger.info("尝试使用 Google 嵌入模型")
+                try:
+                    # 检查Google API密钥
+                    if not settings.GOOGLE_API_KEY:
+                        logger.warning("GOOGLE_API_KEY 未配置，回退到 OpenAI")
+                        return self._fallback_to_openai()
+                    
+                    # 创建Google嵌入模型，设置较短的超时时间
+                    import httpx
+                    embeddings = GoogleGenerativeAIEmbeddings(
+                        model=getattr(settings, 'GOOGLE_EMBEDDING_MODEL', 'models/text-embedding-004'),
+                        google_api_key=settings.GOOGLE_API_KEY,
+                        # 设置网络超时
+                        request_options={
+                            "timeout": 30.0,  # 30秒超时
+                            "max_retries": 2
+                        }
+                    )
+                    
+                    # 简单验证模型配置（不进行实际网络请求以避免阻塞）
+                    logger.info("Google 嵌入模型配置完成，将在首次使用时验证连接")
+                    return embeddings
+                        
+                except ImportError as import_e:
+                    logger.error(f"无法导入 GoogleGenerativeAIEmbeddings: {str(import_e)}")
+                    logger.info("回退到 OpenAI 嵌入模型")
+                    return self._fallback_to_openai()
+                except Exception as google_e:
+                    logger.error(f"Google 嵌入模型初始化失败: {str(google_e)}")
+                    logger.info("回退到 OpenAI 嵌入模型")
+                    return self._fallback_to_openai()
                 
             elif self.embedding_provider.lower() == 'qwen':
                 logger.info("使用 Qwen (DashScope) 嵌入模型")
@@ -61,25 +94,33 @@ class LLMRetrievalService:
                 except ImportError as e:
                     logger.error(f"无法导入 DashScopeEmbeddings: {str(e)}")
                     logger.error("请确保安装了 langchain-community 和 dashscope 库")
-                    raise ImportError(
-                        "DashScope 嵌入需要安装以下依赖:\n"
-                        "pip install langchain-community dashscope"
-                    )
+                    logger.info("回退到 OpenAI 嵌入模型")
+                    return self._fallback_to_openai()
                 
             else:
                 logger.warning(f"不支持的嵌入模型提供商: {self.embedding_provider}，回退到 OpenAI")
-                return OpenAIEmbeddings(
-                    model=getattr(settings, 'EMBEDDING_MODEL', 'text-embedding-3-small'),
-                    openai_api_key=settings.OPENAI_API_KEY
-                )
+                return self._fallback_to_openai()
                 
         except Exception as e:
             logger.error(f"初始化嵌入模型失败: {str(e)}")
-            # 回退到 OpenAI 作为默认选项
+            logger.info("使用 OpenAI 作为最终回退选项")
+            return self._fallback_to_openai()
+    
+    def _fallback_to_openai(self) -> Embeddings:
+        """回退到OpenAI嵌入模型"""
+        try:
+            if not settings.OPENAI_API_KEY:
+                logger.error("OpenAI API密钥未配置，无法回退")
+                raise ValueError("没有可用的嵌入模型提供商")
+            
+            logger.info("回退使用 OpenAI 嵌入模型")
             return OpenAIEmbeddings(
                 model=getattr(settings, 'EMBEDDING_MODEL', 'text-embedding-3-small'),
                 openai_api_key=settings.OPENAI_API_KEY
             )
+        except Exception as e:
+            logger.error(f"OpenAI 嵌入模型初始化也失败: {str(e)}")
+            raise ValueError(f"所有嵌入模型提供商都不可用: {str(e)}")
     
     def _initialize_vector_store(self):
         """

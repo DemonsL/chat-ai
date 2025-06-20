@@ -72,9 +72,9 @@ MODEL_CONFIGS = {
     },
     
     # Google模型
-    "google-genai": {
+    "google_genai": {
         "gemini-1.5-pro": {
-            "provider": "google-genai",
+            "provider": "google_genai",
             "model_id": "gemini-1.5-pro",
             "max_tokens": 4000,
             "temperature": 0.7,
@@ -83,8 +83,26 @@ MODEL_CONFIGS = {
             }
         },
         "gemini-1.5-flash": {
-            "provider": "google-genai",
+            "provider": "google_genai",
             "model_id": "gemini-1.5-flash",
+            "max_tokens": 4000,
+            "temperature": 0.7,
+            "extra_params": {
+                "google_api_key": os.getenv("GOOGLE_API_KEY"),
+            }
+        },
+        "gemini-pro": {
+            "provider": "google_genai",
+            "model_id": "gemini-pro",
+            "max_tokens": 4000,
+            "temperature": 0.7,
+            "extra_params": {
+                "google_api_key": os.getenv("GOOGLE_API_KEY"),
+            }
+        },
+        "gemini-pro-vision": {
+            "provider": "google_genai",
+            "model_id": "gemini-pro-vision",
             "max_tokens": 4000,
             "temperature": 0.7,
             "extra_params": {
